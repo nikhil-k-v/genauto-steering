@@ -13,7 +13,7 @@ time.
 | Problem | Why it is hard | Solution in this repo |
 |---|---|---|
 | A steering column has high, variable friction and hard end stops | Pure PD leaves steady-state error; hitting a stop with gain = damage | Cascaded control (§3) with a Teensy-side leaky integral; firmware-owned limits with margin; auto end-stop calibration (§5) |
-| Three computers and several links can each fail silently | "Motor doesn't move" has ~20 root causes | Health tree (docs/HEALTH.md): every link and subsystem is a node with a state, a reason and the actions it blocks; shown as a live system diagram; controls are literally wired to the tiles they depend on |
+| Three computers and several links can each fail silently | "Motor doesn't move" has ~20 root causes | Health tree (docs/HEALTH.md): every link and subsystem is a node with a state, a reason and the actions it blocks; shown as the signal chain in the app's rail; controls are literally wired to the rail rows they depend on |
 | Trajectories must be captured, replayed and compared | Files scattered, playbacks unlinked, no context when something went wrong | Store with lineage (docs/DATA.md): playbacks are children of their recording; every recording carries metrics, gains, limits, health snapshots and the event log |
 | A crash or lost link must never leave torque applied | PC software is the least reliable part | Firmware owns safety (docs/SAFETY.md): trips, slew/gain ramps, switch + liveness gating, REST on PC loss; the app cannot crash from a callback and always sends DISABLE on exit |
 | More devices are coming (throttle robot, phones, planner) | A web GUI in the control loop adds latency and failure modes | The laptop app owns the Teensy link; an optional hub beside it exposes the same bus/controller to browsers, phones and the planner (§6) |
@@ -80,7 +80,7 @@ is exactly 0°. Manual fallback: capture L / capture R in free-spin → go-centr
 The hub (`server/hub.py`, FastAPI + WebSocket) is optional and sits beside the desktop app, never between
 it and the Teensy. It serves:
 
-* `/` — browser UI (`web/index.html`): live system tiles + connectivity check, recordings browser with
+* `/` — browser UI (`web/index.html`): the same rail, the system diagram, a hop-by-hop connectivity check, recordings browser with
   traces / metrics / events / video, data handling (pin, rename, notes, tags, hide), the docs with diagrams.
 * `/phone` — phone capture (camera, IMU, NTP-style sync into the active recording's folder).
 * `/ws` — JSON stream (telemetry 20 Hz, health 2 Hz, events, recording state) and, with *allow remote

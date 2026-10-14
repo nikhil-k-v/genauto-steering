@@ -119,6 +119,8 @@ class Hub:
 
         api.mount("/diagrams", StaticFiles(directory=str(DOCS_DIR / "diagrams")), name="diagrams")
         api.mount("/screenshots", StaticFiles(directory=str(DOCS_DIR / "screenshots")), name="screenshots")
+        if (WEB_DIR / "fonts").is_dir():
+            api.mount("/fonts", StaticFiles(directory=str(WEB_DIR / "fonts")), name="fonts")
 
         @api.get("/api/health")
         async def api_health():
@@ -232,7 +234,8 @@ class Hub:
             return {"ctrl_state": P.CS_NAMES.get(hub.app.controller.live.ctrl_state),
                     "position_deg": t.position_deg if t else None,
                     "health": hub.app.controller.live.tree.summary_line(),
-                    "recording": hub.app.recorder.status, "clients": len(hub._clients)}
+                    "recording": hub.app.recorder.status, "clients": len(hub._clients),
+                    "telemetry_hz": round(hub.app.link.stats.telemetry_hz, 1)}
 
         @api.post("/capture/upload")
         async def upload(request: Request, file: UploadFile, uid: str, start_server_ms: float,

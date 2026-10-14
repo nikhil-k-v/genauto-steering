@@ -1,14 +1,23 @@
-"""ui/theme.py - fonts, colours and widget styles.
+"""ui/theme.py - palette, type scale and widget styles.
 
-Every kind of widget looks different on purpose:
-  * ACTION BUTTONS  - solid rounded blocks, Poppins, colour = what they do
-                      (green = power on, red = stop/danger, amber = free-spin,
-                      blue = run something, grey = neutral)
-  * TOGGLES         - checkboxes drawn as pill switches (accent when on)
-  * INPUTS          - dark inset fields, mono font
-  * READOUTS/LOGS   - mono font on a darker panel (telemetry, events, paths)
-  * SECTION HEADERS - small Poppins caps + hairline
-  * TILES           - small title above, big filled box, Poppins inside
+Design rules (keep them when adding UI):
+
+  * Colour means status, nothing else.  Green OK, amber blocked, red failed,
+    grey unknown/off.  Everything else is ink on paper.  If a thing is coloured,
+    it is telling you about the system.
+  * Healthy is quiet, broken is loud.  OK shows as a small green mark; a problem
+    gets colour, words and the node id.
+  * One family for the interface (Barlow, tabular digits), one mono for things
+    that are literally machine text (paths, logs, counters).
+  * Widgets look like what they are:
+        primary   ink fill            the one main action of a panel
+        secondary white, ruled        other actions
+        quiet     text only           utilities (open folder, clear, pin)
+        danger    red fill            stop / destructive - Stop motor only lights up
+                                       when there is something to stop
+        segment   joined pair         mutually exclusive modes (Hold | Free-spin)
+        toggle    checkbox            on/off preferences
+        field     white, ruled        numbers and names
 """
 from __future__ import annotations
 
@@ -20,185 +29,269 @@ from .. import protocol as P
 
 FONT_DIR = Path(__file__).resolve().parent / "fonts"
 
-BG       = (14, 16, 22)
-PANEL    = (22, 25, 34)
-PANEL2   = (28, 32, 44)
-INSET    = (10, 12, 17)
-BORDER   = (48, 54, 70)
-TEXT     = (226, 229, 236)
-DIM      = (128, 136, 152)
-ACCENT   = (74, 140, 255)
-OK       = (62, 190, 110)
-WARN     = (236, 160, 64)
-BAD      = (226, 76, 76)
-UNKNOWN  = (84, 90, 108)
-PURPLE   = (160, 130, 250)
-INK      = (12, 14, 18)      # text on bright fills
+# ---- palette ----------------------------------------------------------------------------------
+PAPER   = (244, 245, 246)     # workspace
+RAIL    = (230, 233, 236)     # system rail
+SURFACE = (255, 255, 255)     # fields, plots, cards
+INK     = (27, 33, 41)        # text, primary buttons
+MUTED   = (104, 113, 124)     # secondary text
+FAINT   = (163, 170, 179)     # disabled text, unknown status
+RULE    = (210, 214, 219)     # borders
+HOVER   = (236, 239, 242)
+SELECT  = (222, 231, 245)     # selected row
+SIGNAL  = (43, 95, 174)       # the measured position (plots, slider grab)
+
+OK      = (47, 138, 87)
+WARN    = (181, 117, 14)
+BAD     = (194, 54, 45)
+IDLE    = FAINT
+
+# legacy names some panels still use
+TEXT, DIM, ACCENT, UNKNOWN = INK, MUTED, SIGNAL, FAINT
 
 SERIES = {
-    "setpoint": (255, 180, 50), "target": (255, 120, 180), "position": (80, 180, 255), "error": (220, 70, 70),
-    "velocity": (140, 220, 100), "current": (200, 140, 255), "torque": (255, 120, 180), "cursor": (255, 230, 80),
+    "position": SIGNAL, "setpoint": INK, "target": (122, 91, 181), "error": (176, 104, 52),
+    "velocity": SIGNAL, "current": (122, 91, 181), "torque": FAINT, "cursor": INK, "trim": BAD,
 }
+SERIES_WEIGHT = {"setpoint": 1.2, "position": 2.0}
 
-STATE_COLOR = {P.HS_OK: OK, P.HS_BLOCKED: WARN, P.HS_FAIL: BAD, P.HS_UNKNOWN: UNKNOWN}
-STATE_WORD = {P.HS_OK: "OK", P.HS_BLOCKED: "BLOCKED", P.HS_FAIL: "FAIL", P.HS_UNKNOWN: "UNKNOWN"}
-CS_COLOR = {P.CS_REST: UNKNOWN, P.CS_HOLD: OK, P.CS_TRAJ: ACCENT, P.CS_TEST: PURPLE,
-            P.CS_FREESPIN: WARN, P.CS_CALIB: WARN, P.CS_TRIPPED: BAD}
+STATE_COLOR = {P.HS_OK: OK, P.HS_BLOCKED: WARN, P.HS_FAIL: BAD, P.HS_UNKNOWN: IDLE}
+STATE_WORD = {P.HS_OK: "ok", P.HS_BLOCKED: "blocked", P.HS_FAIL: "failed", P.HS_UNKNOWN: "unknown"}
+
+# controller state, said the way an operator would
+CS_WORD = {P.CS_REST: "Resting", P.CS_HOLD: "Holding", P.CS_TRAJ: "Following", P.CS_TEST: "Testing",
+           P.CS_FREESPIN: "Free-spin", P.CS_CALIB: "Calibrating", P.CS_TRIPPED: "Tripped"}
+CS_COLOR = {P.CS_REST: INK, P.CS_HOLD: INK, P.CS_TRAJ: INK, P.CS_TEST: INK,
+            P.CS_FREESPIN: INK, P.CS_CALIB: INK, P.CS_TRIPPED: BAD}
 
 _themes: dict = {}
 FONTS: dict = {}
+FONT_SIZE: dict = {}
 
 
 def _font(name, file, size):
     p = FONT_DIR / file
+    FONT_SIZE[name] = size
     if p.exists():
-        FONTS[name] = dpg.add_font(str(p), size)
+        FONTS[name] = dpg.add_font(str(p), size)        # glyph ranges load on demand in DPG 2
     return FONTS.get(name)
 
 
 def build():
     with dpg.font_registry():
-        _font("body", "DejaVuSans.ttf", 15)
-        _font("small", "DejaVuSans.ttf", 12)
-        _font("head", "Poppins-Bold.ttf", 14)
-        _font("btn", "Poppins-Medium.ttf", 15)
-        _font("tile", "Poppins-Bold.ttf", 20)
-        _font("big", "Poppins-Bold.ttf", 28)
-        _font("mono", "DejaVuSansMono.ttf", 13)
-        _font("mono_b", "DejaVuSansMono-Bold.ttf", 14)
-        _font("mono_s", "DejaVuSansMono.ttf", 11)
+        _font("body", "Barlow-Regular.ttf", 17)
+        _font("small", "Barlow-Regular.ttf", 15)
+        _font("label", "Barlow-Medium.ttf", 17)
+        _font("head", "Barlow-SemiBold.ttf", 19)
+        _font("state", "Barlow-SemiBold.ttf", 24)
+        _font("numeral", "BarlowSemiCondensed-Medium.ttf", 56)
+        _font("mono", "IBMPlexMono-Regular.ttf", 14)
+        _font("mono_s", "IBMPlexMono-Regular.ttf", 13)
     if "body" in FONTS:
         dpg.bind_font(FONTS["body"])
 
     with dpg.theme() as g:
         with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, BG)
-            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, PANEL)
-            dpg.add_theme_color(dpg.mvThemeCol_Border, BORDER)
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, INSET)
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (30, 34, 46))
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (36, 42, 58))
-            dpg.add_theme_color(dpg.mvThemeCol_Button, (52, 58, 76))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (66, 74, 96))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, ACCENT)
-            dpg.add_theme_color(dpg.mvThemeCol_Header, (40, 46, 62))
-            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (52, 60, 80))
-            dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, (60, 70, 96))
-            dpg.add_theme_color(dpg.mvThemeCol_Tab, (26, 30, 40))
-            dpg.add_theme_color(dpg.mvThemeCol_TabActive, (46, 66, 110))
-            dpg.add_theme_color(dpg.mvThemeCol_TabHovered, (56, 76, 120))
-            dpg.add_theme_color(dpg.mvThemeCol_Text, TEXT)
-            dpg.add_theme_color(dpg.mvThemeCol_TextDisabled, DIM)
-            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, (30, 36, 50))
-            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarBg, (16, 18, 24))
-            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrab, (70, 78, 100))
-            dpg.add_theme_color(dpg.mvThemeCol_CheckMark, ACCENT)
-            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, ACCENT)
-            dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (120, 170, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_Separator, BORDER)
-            dpg.add_theme_color(dpg.mvThemeCol_TableHeaderBg, (30, 34, 46))
-            dpg.add_theme_color(dpg.mvThemeCol_TableBorderLight, BORDER)
-            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
-            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 0)
-            dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, 8)
-            dpg.add_theme_style(dpg.mvStyleVar_TabRounding, 6)
-            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 8, 5)
-            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 8, 7)
-            dpg.add_theme_style(dpg.mvStyleVar_ScrollbarSize, 10)
-            dpg.add_theme_style(dpg.mvStyleVar_GrabMinSize, 14)
-            dpg.add_theme_color(dpg.mvPlotCol_PlotBg, (16, 18, 24), category=dpg.mvThemeCat_Plots)
-            dpg.add_theme_color(dpg.mvPlotCol_FrameBg, PANEL, category=dpg.mvThemeCat_Plots)
-            dpg.add_theme_color(dpg.mvPlotCol_PlotBorder, BORDER, category=dpg.mvThemeCat_Plots)
-            dpg.add_theme_color(dpg.mvPlotCol_LegendBg, (22, 25, 34, 210), category=dpg.mvThemeCat_Plots)
-            dpg.add_theme_color(dpg.mvPlotCol_AxisGrid, (40, 44, 58), category=dpg.mvThemeCat_Plots)
+            c = dpg.add_theme_color
+            c(dpg.mvThemeCol_WindowBg, PAPER)
+            c(dpg.mvThemeCol_ChildBg, PAPER)
+            c(dpg.mvThemeCol_PopupBg, SURFACE)
+            c(dpg.mvThemeCol_Border, RULE)
+            c(dpg.mvThemeCol_BorderShadow, (0, 0, 0, 0))
+            c(dpg.mvThemeCol_FrameBg, SURFACE)
+            c(dpg.mvThemeCol_FrameBgHovered, SURFACE)
+            c(dpg.mvThemeCol_FrameBgActive, SURFACE)
+            c(dpg.mvThemeCol_Button, SURFACE)
+            c(dpg.mvThemeCol_ButtonHovered, HOVER)
+            c(dpg.mvThemeCol_ButtonActive, RULE)
+            c(dpg.mvThemeCol_Header, SELECT)
+            c(dpg.mvThemeCol_HeaderHovered, HOVER)
+            c(dpg.mvThemeCol_HeaderActive, SELECT)
+            c(dpg.mvThemeCol_Tab, PAPER)
+            c(dpg.mvThemeCol_TabHovered, HOVER)
+            c(dpg.mvThemeCol_TabActive, SURFACE)
+            c(dpg.mvThemeCol_TabUnfocusedActive, SURFACE)
+            c(dpg.mvThemeCol_TabSelectedOverline, INK)
+            c(dpg.mvThemeCol_TabDimmedSelectedOverline, INK)
+            c(dpg.mvThemeCol_Text, INK)
+            c(dpg.mvThemeCol_TextDisabled, FAINT)
+            c(dpg.mvThemeCol_TextSelectedBg, SELECT)
+            c(dpg.mvThemeCol_ScrollbarBg, (0, 0, 0, 0))
+            c(dpg.mvThemeCol_ScrollbarGrab, RULE)
+            c(dpg.mvThemeCol_ScrollbarGrabHovered, FAINT)
+            c(dpg.mvThemeCol_ScrollbarGrabActive, MUTED)
+            c(dpg.mvThemeCol_CheckMark, INK)
+            c(dpg.mvThemeCol_SliderGrab, SIGNAL)
+            c(dpg.mvThemeCol_SliderGrabActive, SIGNAL)
+            c(dpg.mvThemeCol_Separator, RULE)
+            c(dpg.mvThemeCol_TableHeaderBg, PAPER)
+            c(dpg.mvThemeCol_TableBorderLight, RULE)
+            c(dpg.mvThemeCol_TableBorderStrong, RULE)
+            c(dpg.mvThemeCol_TableRowBg, (0, 0, 0, 0))
+            c(dpg.mvThemeCol_TableRowBgAlt, (0, 0, 0, 0))
+            c(dpg.mvThemeCol_PlotHistogram, SIGNAL)
+            s = dpg.add_theme_style
+            s(dpg.mvStyleVar_WindowPadding, 0, 0)
+            s(dpg.mvStyleVar_WindowBorderSize, 0)
+            s(dpg.mvStyleVar_ChildBorderSize, 1)
+            s(dpg.mvStyleVar_PopupBorderSize, 1)
+            s(dpg.mvStyleVar_FrameBorderSize, 1)
+            s(dpg.mvStyleVar_FrameRounding, 4)
+            s(dpg.mvStyleVar_ChildRounding, 6)
+            s(dpg.mvStyleVar_PopupRounding, 6)
+            s(dpg.mvStyleVar_TabRounding, 4)
+            s(dpg.mvStyleVar_GrabRounding, 3)
+            s(dpg.mvStyleVar_ScrollbarRounding, 4)
+            s(dpg.mvStyleVar_FramePadding, 10, 6)
+            s(dpg.mvStyleVar_ItemSpacing, 10, 8)
+            s(dpg.mvStyleVar_ItemInnerSpacing, 8, 6)
+            s(dpg.mvStyleVar_ScrollbarSize, 8)
+            s(dpg.mvStyleVar_GrabMinSize, 16)
+            s(dpg.mvStyleVar_TabBorderSize, 0)
+            s(dpg.mvStyleVar_TabBarOverlineSize, 2)
+            s(dpg.mvStyleVar_TabBarBorderSize, 0)
+            pc = lambda k, v: dpg.add_theme_color(k, v, category=dpg.mvThemeCat_Plots)
+            pc(dpg.mvPlotCol_PlotBg, SURFACE)
+            pc(dpg.mvPlotCol_FrameBg, SURFACE)
+            pc(dpg.mvPlotCol_PlotBorder, (0, 0, 0, 0))
+            pc(dpg.mvPlotCol_LegendBg, (255, 255, 255, 230))
+            pc(dpg.mvPlotCol_LegendBorder, (0, 0, 0, 0))
+            pc(dpg.mvPlotCol_LegendText, MUTED)
+            pc(dpg.mvPlotCol_AxisGrid, (234, 236, 239))
+            pc(dpg.mvPlotCol_AxisText, MUTED)
+            pc(dpg.mvPlotCol_AxisBg, (0, 0, 0, 0))
+            pc(dpg.mvPlotCol_AxisBgHovered, HOVER)
+            pc(dpg.mvPlotCol_AxisBgActive, HOVER)
+            pc(dpg.mvPlotCol_TitleText, INK)
+            pc(dpg.mvPlotCol_Crosshairs, MUTED)
+            ps = lambda k, *v: dpg.add_theme_style(k, *v, category=dpg.mvThemeCat_Plots)
+            ps(dpg.mvPlotStyleVar_PlotPadding, 12, 10)
+            ps(dpg.mvPlotStyleVar_LegendPadding, 6, 4)
+        with dpg.theme_component(dpg.mvChildWindow):
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+        with dpg.theme_component(dpg.mvCollapsingHeader):      # a quiet disclosure line, not a bar
+            dpg.add_theme_color(dpg.mvThemeCol_Header, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, HOVER)
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, HOVER)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 4, 6)
+        for comp in (dpg.mvButton, dpg.mvInputFloat, dpg.mvInputInt, dpg.mvInputText, dpg.mvCombo,
+                     dpg.mvSliderFloat, dpg.mvCheckbox):
+            with dpg.theme_component(comp, enabled_state=False):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, FAINT)
+                dpg.add_theme_color(dpg.mvThemeCol_Button, PAPER)
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, PAPER)
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, PAPER)
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, PAPER)
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, RULE)
+                dpg.add_theme_color(dpg.mvThemeCol_Border, RULE)
     dpg.bind_theme(g)
 
     for name, col in SERIES.items():
         with dpg.theme() as t:
-            with dpg.theme_component(dpg.mvLineSeries):
-                dpg.add_theme_color(dpg.mvPlotCol_Line, col, category=dpg.mvThemeCat_Plots)
-                dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, 1.7, category=dpg.mvThemeCat_Plots)
-            with dpg.theme_component(dpg.mvInfLineSeries):
-                dpg.add_theme_color(dpg.mvPlotCol_Line, col, category=dpg.mvThemeCat_Plots)
-                dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, 2.5, category=dpg.mvThemeCat_Plots)
+            for comp in (dpg.mvLineSeries, dpg.mvInfLineSeries):
+                with dpg.theme_component(comp):
+                    dpg.add_theme_color(dpg.mvPlotCol_Line, col, category=dpg.mvThemeCat_Plots)
+                    dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, SERIES_WEIGHT.get(name, 1.5),
+                                        category=dpg.mvThemeCat_Plots)
         _themes[f"series_{name}"] = t
 
-    # ---- action buttons: solid fills, dark text on bright colours ----------------------
-    def btn(name, col, text=INK, rounding=6):
+    # ---- buttons --------------------------------------------------------------------------
+    def btn(name, fill, text, border, hover, press, pad=(12, 7), same_when_disabled=False):
         with dpg.theme() as t:
             with dpg.theme_component(dpg.mvButton):
-                dpg.add_theme_color(dpg.mvThemeCol_Button, col)
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, tuple(min(255, c + 28) for c in col))
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, tuple(min(255, c + 50) for c in col))
+                dpg.add_theme_color(dpg.mvThemeCol_Button, fill)
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, hover)
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, press)
                 dpg.add_theme_color(dpg.mvThemeCol_Text, text)
-                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, rounding)
-                dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 7)
+                dpg.add_theme_color(dpg.mvThemeCol_Border, border)
+                dpg.add_theme_style(dpg.mvStyleVar_FramePadding, *pad)
+            if same_when_disabled:              # the active segment stays ink even though pressing it does nothing
+                with dpg.theme_component(dpg.mvButton, enabled_state=False):
+                    dpg.add_theme_color(dpg.mvThemeCol_Button, fill)
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, fill)
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, fill)
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, text)
+                    dpg.add_theme_color(dpg.mvThemeCol_Border, border)
+                    dpg.add_theme_style(dpg.mvStyleVar_FramePadding, *pad)
+                _themes[name] = t
+                return
             with dpg.theme_component(dpg.mvButton, enabled_state=False):
-                dpg.add_theme_color(dpg.mvThemeCol_Button, (30, 33, 44))
-                dpg.add_theme_color(dpg.mvThemeCol_Text, (84, 90, 108))
-                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, rounding)
-                dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 7)
+                dpg.add_theme_color(dpg.mvThemeCol_Button, PAPER if name != "btn_quiet" else (0, 0, 0, 0))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, PAPER if name != "btn_quiet" else (0, 0, 0, 0))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, PAPER if name != "btn_quiet" else (0, 0, 0, 0))
+                dpg.add_theme_color(dpg.mvThemeCol_Text, FAINT)
+                dpg.add_theme_color(dpg.mvThemeCol_Border, RULE if name != "btn_quiet" else (0, 0, 0, 0))
+                dpg.add_theme_style(dpg.mvStyleVar_FramePadding, *pad)
         _themes[name] = t
-    btn("btn_ok", OK)
-    btn("btn_warn", WARN)
-    btn("btn_bad", BAD, TEXT)
-    btn("btn_accent", ACCENT, TEXT)
-    btn("btn_neutral", (58, 66, 88), TEXT)
-    btn("btn_ghost", (34, 38, 50), TEXT, rounding=3)      # small utility buttons (pin, open, ...)
+    btn("btn_primary", INK, SURFACE, INK, (52, 60, 72), (70, 80, 94))
+    btn("btn_secondary", SURFACE, INK, RULE, HOVER, RULE)
+    btn("btn_quiet", (0, 0, 0, 0), MUTED, (0, 0, 0, 0), HOVER, RULE, pad=(6, 5))
+    btn("btn_danger", BAD, SURFACE, BAD, (214, 70, 60), (170, 44, 36))
+    btn("btn_danger_idle", SURFACE, BAD, RULE, HOVER, RULE)
+    btn("seg_on", INK, SURFACE, INK, INK, INK, same_when_disabled=True)
+    btn("seg_off", SURFACE, INK, RULE, HOVER, RULE)
 
-    # ---- toggles: pill switches --------------------------------------------------------
     with dpg.theme() as t:
         with dpg.theme_component(dpg.mvCheckbox):
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (40, 46, 62))
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (52, 60, 80))
-            dpg.add_theme_color(dpg.mvThemeCol_CheckMark, (255, 255, 255))
-            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 12)
-            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 6, 6)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 3, 3)
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 3)
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, HOVER)
     _themes["toggle"] = t
 
-    # ---- inputs: inset, mono ------------------------------------------------------------
-    with dpg.theme() as t:
-        for comp in (dpg.mvInputFloat, dpg.mvInputInt, dpg.mvInputText, dpg.mvCombo):
-            with dpg.theme_component(comp):
-                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, INSET)
-                dpg.add_theme_color(dpg.mvThemeCol_Border, (40, 46, 62))
-                dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 1)
-                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 3)
-    _themes["input"] = t
-
-    # ---- sliders: fat grab ---------------------------------------------------------------
     with dpg.theme() as t:
         with dpg.theme_component(dpg.mvSliderFloat):
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (28, 32, 44))
-            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, ACCENT)
             dpg.add_theme_style(dpg.mvStyleVar_GrabMinSize, 22)
-            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 8)
-            dpg.add_theme_style(dpg.mvStyleVar_GrabRounding, 8)
-        with dpg.theme_component(dpg.mvSliderFloat, enabled_state=False):
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (24, 26, 34))
-            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (60, 64, 78))
-            dpg.add_theme_color(dpg.mvThemeCol_Text, (84, 90, 108))
-    _themes["slider"] = t
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 10)
+    _themes["slider_big"] = t
 
-    # ---- readout / log panels: darker inset -----------------------------------------------
-    with dpg.theme() as t:
+    with dpg.theme() as t:                      # the system rail
         with dpg.theme_component(dpg.mvChildWindow):
-            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, INSET)
-            dpg.add_theme_color(dpg.mvThemeCol_Border, (36, 40, 52))
-            dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, 4)
-    _themes["readout"] = t
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, RAIL)
+            dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 0)
+            dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, 0)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 20, 18)
+    _themes["rail"] = t
 
-    with dpg.theme() as t:
+    with dpg.theme() as t:                      # white panel with a hairline
         with dpg.theme_component(dpg.mvChildWindow):
-            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, PANEL2)
-            dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, 8)
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, SURFACE)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 14, 12)
     _themes["card"] = t
+
+    with dpg.theme() as t:                      # a page: the white sheet under the active tab
+        with dpg.theme_component(dpg.mvChildWindow):
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, SURFACE)
+            dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 0)
+            dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, 6)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 24, 18)
+    _themes["page"] = t
+
+    with dpg.theme() as t:                      # transparent, no border, no padding
+        with dpg.theme_component(dpg.mvChildWindow):
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (0, 0, 0, 0))
+            dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 0)
+    _themes["bare"] = t
 
     with dpg.theme() as t:
         with dpg.theme_component(dpg.mvSelectable):
-            dpg.add_theme_color(dpg.mvThemeCol_Header, (46, 66, 110))
-            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (40, 46, 62))
+            dpg.add_theme_style(dpg.mvStyleVar_SelectableTextAlign, 0, 0.5)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 6, 6)
     _themes["row"] = t
+
+    with dpg.theme() as t:                      # tight tables (results, proposals)
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_style(dpg.mvStyleVar_CellPadding, 4, 2)
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 14, 5)
+    _themes["compact"] = t
+
+    with dpg.theme() as t:                      # toast
+        with dpg.theme_component(dpg.mvWindowAppItem):
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, SURFACE)
+            dpg.add_theme_color(dpg.mvThemeCol_Border, RULE)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 14, 10)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 1)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 6)
+    _themes["popup"] = t
 
 
 def theme(name: str):
@@ -219,43 +312,70 @@ def bind_font(item, name: str):
         dpg.bind_item_font(item, f)
 
 
-# ---- small layout helpers used by every panel ------------------------------------------------
-def section(label: str, width: int = -1):
-    """Section header: small Poppins caps + hairline."""
-    t = dpg.add_text(label.upper(), color=DIM)
-    bind_font(t, "head")
-    dpg.add_separator()
-    return t
+# ---- helpers used by every panel ---------------------------------------------------------------
+KIND_ALIAS = {"ok": "primary", "accent": "primary", "neutral": "secondary", "warn": "secondary",
+              "ghost": "quiet", "bad": "danger"}
 
 
-def mono_text(text: str = "", color=TEXT, wrap: int = 0, bold: bool = False):
+def heading(text: str, note: str = ""):
+    """Section heading in sentence case; optional one-line muted note under it."""
+    h = dpg.add_text(text)
+    bind_font(h, "head")
+    if note:
+        n = dpg.add_text(note, color=MUTED, wrap=760)
+        bind_font(n, "small")
+    return h
+
+
+section = heading
+
+
+def gap(h: int = 14):
+    dpg.add_spacer(height=h)
+
+
+def label(text: str, color=MUTED, wrap: int = 0):
     t = dpg.add_text(text, color=color, wrap=wrap)
-    bind_font(t, "mono_b" if bold else "mono")
+    bind_font(t, "small")
     return t
 
 
-def action(label: str, kind: str, callback, width: int = -1, user_data=None):
-    b = dpg.add_button(label=label, width=width, callback=callback, user_data=user_data)
+def mono_text(text: str = "", color=INK, wrap: int = 0, small: bool = False, bold: bool = False):
+    t = dpg.add_text(text, color=color, wrap=wrap)
+    bind_font(t, "mono_s" if small else "mono")
+    return t
+
+
+def action(text: str, kind: str, callback, width: int = 0, user_data=None):
+    kind = KIND_ALIAS.get(kind, kind)
+    b = dpg.add_button(label=text, width=width, callback=callback, user_data=user_data)
     dpg.bind_item_theme(b, theme(f"btn_{kind}"))
-    bind_font(b, "btn")
+    bind_font(b, "label" if kind != "quiet" else "small")
     return b
 
 
-def toggle(label: str, default: bool, callback=None, user_data=None):
-    c = dpg.add_checkbox(label=label, default_value=default, callback=callback, user_data=user_data)
+def toggle(text: str, default: bool, callback=None, user_data=None):
+    c = dpg.add_checkbox(label=text, default_value=default, callback=callback, user_data=user_data)
     dpg.bind_item_theme(c, theme("toggle"))
     return c
 
 
-def number(label: str, default: float, width: int = 90, fmt: str = "%.2f", callback=None):
-    i = dpg.add_input_float(label=label, default_value=default, width=width, step=0, format=fmt, callback=callback)
-    dpg.bind_item_theme(i, theme("input"))
-    bind_font(i, "mono")
+def number(text: str, default: float, width: int = 90, fmt: str = "%.2f", callback=None):
+    """Numeric field with its label on the left (label reads first)."""
+    with dpg.group(horizontal=True):
+        label(text, MUTED)
+        i = dpg.add_input_float(default_value=default, width=width, step=0, format=fmt, callback=callback)
     return i
 
 
 def text_input(default: str = "", width: int = 150, hint: str = "", callback=None, on_enter: bool = False):
-    i = dpg.add_input_text(default_value=default, width=width, hint=hint, callback=callback, on_enter=on_enter)
-    dpg.bind_item_theme(i, theme("input"))
-    bind_font(i, "mono")
-    return i
+    return dpg.add_input_text(default_value=default, width=width, hint=hint, callback=callback, on_enter=on_enter)
+
+
+def card(**kw):
+    cw = dpg.child_window(border=True, **kw)
+    return cw
+
+
+def bind_card(item):
+    dpg.bind_item_theme(item, theme("card"))

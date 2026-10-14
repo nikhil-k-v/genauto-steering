@@ -41,7 +41,7 @@ HOLD_HERE REQ_CONFIG RESET_COUNTERS CAPTURE_LEFT CAPTURE_RIGHT GO_CENTER_ZERO SE
 
 Every command is answered by `EV_CMD_ACCEPTED` or `EV_CMD_REJECTED` + reason text (e.g.
 `"idle switch is IDLE"`, `"no motor CAN reply"`, `"busy: traj/test/cal"`). The UI shows rejections in
-the banner and the Events pane and writes them to the recording's `events.jsonl`.
+the rail (state line, last event) and the Health page's event list, and writes them to the recording's `events.jsonl`.
 
 ### Controller states / trips / calibration stages
 

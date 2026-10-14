@@ -21,9 +21,9 @@ integral, trips; the only CAN writer) ⊃ PC 200 Hz setpoint stream. States: RES
 FREESPIN CALIB TRIPPED. Firmware-owned safety constants in `firmware/teensy/src/config.h`.
 
 **Health tree.** Groups **M** motor&CAN · **S** safety · **T** Teensy controller · **C** comms (PC⇄Teensy) ·
-**D** data/services; 24 nodes, each with reason + affected actions; shown as a live system diagram of big
-coloured tiles in the app, on the web UI and on the OLED (`M4` = first bad node). Every UI action is gated by
-`health/gating.py` and literally wired to its tiles (hover → lines); the Teensy answers every command with
+**D** data/services; 23 checks, each with reason + affected actions; shown in the app's left rail as the
+signal chain (a row that isn't OK names its check, e.g. `M4`), on the web UI and on the OLED. Every UI action is
+gated by `health/gating.py` and literally wired to its rail rows (hover → lines); the Teensy answers every command with
 ACCEPTED/REJECTED + reason. Transitions logged to `data/logs/health-*.jsonl` and into each recording.
 
 **Data.** `data/recordings/<collection>/<date>/<HHMMSS>_<kind>_<name>/` with `data.csv`, `meta.json`,

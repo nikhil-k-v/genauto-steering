@@ -24,8 +24,10 @@ app.controller.calibrate(); wait(lambda: app.controller.live.health_fw and app.c
 r = app.controller.run_generator("sine", duration_s=1.5); wait(lambda: not app.recorder.active)
 app.controller.selected_recording = app.store.get(r.uid); app.controller.play_recording(); wait(lambda: not app.recorder.active)
 base = f"http://127.0.0.1:{a_.port}"
-for name, url in [("web_01_system", "#home"), ("web_02_recordings", "#recordings"), ("web_03_recording", f"#recordings/{r.uid}"), ("web_04_docs", "#docs/HEALTH")]:
-    subprocess.run([a_.chrome, "--headless", "--no-sandbox", "--disable-gpu", "--hide-scrollbars", "--window-size=1400,1000",
+for name, url, size in [("web_01_system", "#system", "1400,1000"), ("web_02_recordings", "#recordings", "1400,1000"),
+                        ("web_03_recording", f"#recordings/{r.uid}", "1400,1000"), ("web_04_docs", "#docs/HEALTH", "1400,1000"),
+                        ("web_05_phone", "phone", "430,900")]:
+    subprocess.run([a_.chrome, "--headless", "--no-sandbox", "--disable-gpu", "--hide-scrollbars", f"--window-size={size}",
                     "--virtual-time-budget=4000", f"--screenshot={a_.out}/{name}.png", base + "/" + url], capture_output=True, timeout=60)
     print("saved", name)
 app.shutdown()

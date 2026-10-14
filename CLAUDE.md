@@ -31,3 +31,8 @@ Read first: `README.md`, then `docs/ARCHITECTURE.md`, `docs/HEALTH.md`, `docs/SA
 * Units in names (`_deg`, `_Nm`, `_ms`). Degrees at the PC/UI boundary, radians only inside `can_motor`.
 * Firmware events carry a ≤19-char reason; the UI shows them verbatim — write them for a human.
 * Prefer editing `config.h` / `model.py` tables over adding code paths.
+* UI look: colour means status only (green/amber/red/grey); everything else is ink on paper. Healthy is quiet,
+  broken is loud. Use `ui/theme.py` helpers (`T.action(kind=primary|secondary|quiet|danger)`, `T.toggle`,
+  `T.number`, `T.heading`, `T.label`, `T.mono_text` for machine text only). No new fonts or colours.
+* Diagrams are generated: edit `docs/diagrams/gen.py`, run `python docs/diagrams/gen.py --png /tmp/x` and look
+  at every PNG before committing (ports are automatic; pin with `pa=`/`pb=` when a route needs it).

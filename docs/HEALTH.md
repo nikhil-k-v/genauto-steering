@@ -1,4 +1,4 @@
-# Health: the status tiles, explained
+# Health: what every check means
 
 Every check in the system is a **node** with an id like `M4`. The letter says what *kind* of thing it is
 about, the number its position in the chain:
@@ -25,25 +25,28 @@ Definitions (name, what OK means, what bad means, the fix, which actions it gate
 
 ## Where you see it
 
-* **System strip** (top of the desktop app): a live diagram — LAPTOP APP ⇄ USB ⇄ CCM/TEENSY ⇄ CAN ⇄ MOTOR,
-  with SAFETY and WEB HUB/PHONE hanging below. Each tile is a status group: small title above, big
-  coloured body, the current value inside (state, position, rate…). Hover a tile → the nodes inside it
-  with their reasons; click → the Health tab.
-* **Health tab**: one tile per node. Hover → what it means / how to fix it, and lines to every control it
-  gates.
-* **Controls**: every button/slider that can move the motor is bound to an action. When a check blocks it,
-  the control is disabled, its tooltip lists the exact reasons, and **hovering it draws lines from the
-  control to the tiles involved** — red where blocking (with the node ids written on the line), green where
-  satisfied.
-* **Web hub**: the same tiles and a "connectivity check" list, from any browser on the network.
-* **CCM OLED**: five boxes `M S T C D`; filled = OK, hollow + index = first bad node (`M4`), blinking = FAIL.
+* **The rail** (left side of the desktop app, always visible): the signal chain drawn as one line —
+  Laptop, USB, Teensy, CAN, Motor — then Safety and Web hub. Each row has a status dot and one live value
+  (rate, loop speed, current). The line between components takes the colour of the link it stands for, so
+  a break shows where it is. A row that is not OK gets one more line: the id and reason of its worst check
+  (`M4  0 Hz, last 6057 ms ago`). Healthy rows stay quiet. Hover a row for its checks; click it to open
+  that check on the Health page.
+* **Health page**: every check, grouped by kind, with its live reason. Click one to see what OK means,
+  what it means when it isn't, the fix, and what it blocks; counters, recent changes and events sit under it.
+* **Controls**: every button or slider that can move the motor is bound to an action. When a check blocks it,
+  the control is disabled and its tooltip says exactly why. **Hovering a control draws lines from it to the
+  rail rows it depends on**: one trunk, one branch per row, green where that row is fine for this action,
+  amber or red (the row's own colour) where it is the reason it is blocked.
+* **Web hub**: the same rail and checks plus a connectivity list (this page, hub, laptop, Teensy, motor,
+  switch, zero, phone), from any browser on the network.
+* **CCM OLED**: five boxes `M S T C D`; filled = OK, hollow + index = first bad check (`M4`), blinking = FAIL.
 
 ## Root-causing "the motor doesn't move"
 
 ![root cause](diagrams/06_root_cause.svg)
 
-Read the strip left to right: **COMMS → SAFETY → MOTOR → TEENSY → state**. The first non-green tile in
-that order is the layer to fix.
+Read the rail top to bottom: **USB, Safety, CAN and Motor, Teensy, then the state**. The first row that
+isn't green is the layer to fix.
 
 ## Where it is logged
 

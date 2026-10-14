@@ -3,247 +3,483 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gen Auto Steering</title>
+<title>Gen Auto steering</title>
 <style>
-  :root { --bg:#0f1218; --panel:#161a24; --panel2:#1c2130; --ink:#e6e9f0; --dim:#8a92a4; --line:#2e3444;
-          --ok:#3ebe6e; --warn:#eca040; --bad:#e24c4c; --unk:#545a6c; --accent:#4a8cff;
-          --M:#a78bfa; --S:#e85555; --T:#4eca7a; --C:#4a8cff; --D:#f0a44e; }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 -apple-system, "Segoe UI", "DejaVu Sans", system-ui, sans-serif; }
-  code, pre, .mono { font-family: "DejaVu Sans Mono", Menlo, Consolas, monospace; font-size: 13px; }
-  header { display:flex; align-items:center; gap:18px; padding:12px 22px; border-bottom:1px solid var(--line); background:#11141c; position:sticky; top:0; z-index:5; }
-  header h1 { font-size:16px; letter-spacing:.6px; margin:0; font-weight:700; }
-  nav a { color:var(--dim); text-decoration:none; margin-right:16px; font-weight:600; font-size:14px; padding:6px 2px; border-bottom:2px solid transparent; }
-  nav a.active { color:var(--ink); border-color:var(--accent); }
-  .spacer { flex:1 }
-  .pill { font-family: monospace; font-size:12px; padding:3px 9px; border-radius:999px; background:#2a3040; }
-  .pill.ok { background:var(--ok); color:#06200f } .pill.bad { background:var(--bad) } .pill.warn { background:var(--warn); color:#1a1200 }
-  main { padding:20px 22px 60px; max-width:1500px; margin:0 auto; }
-  h2 { font-size:20px; margin:22px 0 10px } h3 { font-size:15px; color:var(--dim); text-transform:uppercase; letter-spacing:.8px; margin:22px 0 8px }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:14px; }
-  .grid { display:grid; gap:12px } .g2 { grid-template-columns:1fr 1fr } .g3 { grid-template-columns:repeat(3,1fr) }
-  .tile { border-radius:10px; padding:10px 12px; color:#0c0e12; min-height:66px; }
-  .tile .t { font-size:11px; color:rgba(0,0,0,.65); font-weight:700; letter-spacing:.5px; text-transform:uppercase }
-  .tile .b { font-size:20px; font-weight:800; line-height:1.2 } .tile .s { font-family:monospace; font-size:12px; opacity:.85 }
-  .st0 { background:var(--unk); color:#d8dbe2 } .st0 .t { color:rgba(255,255,255,.7) } .st1 { background:var(--ok) } .st2 { background:var(--warn) } .st3 { background:var(--bad) }
-  .tiles { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px,1fr)); gap:10px }
-  .tile small { display:block; font-family:monospace; font-size:11px; margin-top:4px; opacity:.85 }
-  .tile details { font-size:12px; margin-top:6px; color:rgba(0,0,0,.85) } .st0 details { color:#d8dbe2 }
-  button { font:inherit; font-weight:600; border:0; border-radius:8px; padding:8px 14px; background:#2d3448; color:var(--ink); cursor:pointer }
-  button.primary { background:var(--accent) } button.danger { background:var(--bad) } button.ghost { background:#222838 } button:disabled { opacity:.4 }
-  input, select { font:inherit; font-family:monospace; font-size:13px; background:#0b0d12; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:7px 9px }
-  table { width:100%; border-collapse:collapse; font-size:14px } th { text-align:left; color:var(--dim); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.5px; padding:6px 8px; border-bottom:1px solid var(--line) }
-  td { padding:7px 8px; border-bottom:1px solid #1d2230; vertical-align:top } tr.row:hover td { background:#1a1f2c; cursor:pointer } tr.pb td:first-child { padding-left:28px; color:var(--dim) }
-  .kv { display:grid; grid-template-columns:160px 1fr; gap:4px 12px; font-family:monospace; font-size:13px }
-  .kv b { color:var(--dim); font-weight:600 }
-  canvas.plot { width:100%; height:200px; background:#0b0d12; border-radius:8px; border:1px solid var(--line) }
-  .legend span { display:inline-block; margin-right:14px; font-family:monospace; font-size:12px } .legend i { display:inline-block; width:12px; height:3px; margin-right:6px; vertical-align:middle }
-  .docs { display:grid; grid-template-columns:220px 1fr; gap:18px } .docs nav a { display:block; margin:0 0 6px }
-  .md img { max-width:100%; border-radius:8px; border:1px solid var(--line); background:#0f1218 } .md table { font-size:13px } .md td, .md th { border:1px solid var(--line) } .md pre { background:#0b0d12; padding:10px 12px; border-radius:8px; overflow:auto } .md code { background:#0b0d12; padding:1px 4px; border-radius:4px } .md h1 { font-size:24px } .md h2 { border-bottom:1px solid var(--line); padding-bottom:4px }
-  .md a { color:var(--accent) }
-  .strip { display:grid; grid-template-columns: 1fr 120px 1fr 120px 1fr; gap:10px; align-items:center }
-  .link { text-align:center; font-family:monospace; font-size:12px; color:var(--dim) } .link .bar { height:6px; border-radius:3px; margin:6px 0 }
-  .events { font-family:monospace; font-size:12px; max-height:260px; overflow:auto; background:#0b0d12; border-radius:8px; padding:8px 10px; border:1px solid var(--line) }
-  .events .w { color:var(--warn) } .events .b { color:var(--bad) }
-  .muted { color:var(--dim) }
-  @media (max-width:900px) { .g2, .g3, .docs, .strip { grid-template-columns:1fr } }
+  @font-face { font-family: "Barlow"; font-weight: 400; src: url(/fonts/Barlow-Regular.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow"; font-weight: 500; src: url(/fonts/Barlow-Medium.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow"; font-weight: 600; src: url(/fonts/Barlow-SemiBold.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow Semi Condensed"; font-weight: 500; src: url(/fonts/BarlowSemiCondensed-Medium.woff2) format("woff2"); }
+  @font-face { font-family: "IBM Plex Mono"; font-weight: 400; src: url(/fonts/IBMPlexMono-Regular.woff2) format("woff2"); }
+
+  /* Colour means status, nothing else. Everything else is ink on paper. */
+  :root {
+    --paper:#f4f5f6; --rail:#e6e9ec; --surface:#ffffff; --ink:#1b2129; --muted:#68717c; --faint:#a3aab3;
+    --rule:#d2d6db; --hover:#eceff2; --select:#dee7f5; --signal:#2b5fae;
+    --ok:#2f8a57; --warn:#b5750e; --bad:#c2362d;
+    --rail-w: 300px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink); }
+  body { font: 16px/1.5 "Barlow", "Helvetica Neue", Arial, sans-serif; font-variant-numeric: tabular-nums; }
+  .mono, code, pre { font-family: "IBM Plex Mono", Menlo, Consolas, monospace; font-size: 13px; }
+  a { color: var(--signal); }
+  button, input, select { font: inherit; }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  /* ---- rail -------------------------------------------------------------------------------- */
+  .rail { position: fixed; inset: 0 auto 0 0; width: var(--rail-w); background: var(--rail); padding: 22px 20px; overflow-y: auto; }
+  .brand { font-weight: 600; font-size: 15px; color: var(--muted); }
+  .nav { display: flex; flex-wrap: wrap; gap: 4px 0; font-size: 15px; margin: 14px 0 26px; }
+  .nav a { color: var(--ink); text-decoration: none; padding: 4px 7px; border-radius: 4px; font-weight: 500; }
+  .nav a:hover { background: var(--hover); }
+  .nav a.on { background: var(--ink); color: var(--surface); }
+  .state { font-size: 24px; font-weight: 600; }
+  .state.bad { color: var(--bad); }
+  .state-line { font-size: 15px; color: var(--muted); min-height: 22px; }
+  .state-line.bad { color: var(--bad); } .state-line.warn { color: var(--warn); }
+  .angle { font-family: "Barlow Semi Condensed", "Barlow", sans-serif; font-weight: 500; font-size: 56px; line-height: 1.1; margin-top: 4px; }
+  .target { font-size: 15px; color: var(--muted); min-height: 22px; }
+  .chain { margin-top: 28px; }
+  .row { display: grid; grid-template-columns: 22px 1fr auto; align-items: baseline; position: relative; padding: 3px 0; }
+  .row .name { font-weight: 500; }
+  .row.link .name { font-weight: 400; color: var(--muted); font-size: 15px; }
+  .row .val { color: var(--muted); font-size: 15px; }
+  .row .why { grid-column: 2 / 4; font-size: 15px; }
+  .row .mark { width: 10px; height: 10px; border-radius: 50%; align-self: center; position: relative; z-index: 1; }
+  .row.link .mark { width: 0; height: 0; }
+  .mark.s1 { background: var(--ok); } .mark.s2 { background: var(--warn); } .mark.s3 { background: var(--bad); }
+  .mark.s0, .mark.off { background: transparent; border: 1.6px solid var(--faint); }
+  .row .line { position: absolute; left: 4px; width: 2px; top: -2px; bottom: -2px; }
+  .gap { height: 18px; }
+  .event { margin-top: 22px; color: var(--muted); font-size: 12.5px; }
+  .event.bad { color: var(--bad); } .event.warn { color: var(--warn); }
+  .hub { margin-top: 10px; font-size: 14px; color: var(--muted); }
+
+  /* ---- page -------------------------------------------------------------------------------- */
+  main { margin-left: var(--rail-w); padding: 22px 28px 60px; }
+  .sheet { background: var(--surface); border-radius: 6px; padding: 26px 30px 34px; max-width: 1300px; }
+  h1 { font-size: 28px; font-weight: 600; margin: 0 0 4px; }
+  h2 { font-size: 20px; font-weight: 600; margin: 34px 0 8px; }
+  h3 { font-size: 17px; font-weight: 600; margin: 22px 0 6px; }
+  p.lead { color: var(--muted); max-width: 70ch; margin: 0 0 18px; }
+  .muted { color: var(--muted); }
+  .cols { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 40px; }
+  .figure { width: 100%; border: 1px solid var(--rule); border-radius: 6px; display: block; background: #fff; }
+
+  .checks .grp { margin: 18px 0 4px; font-weight: 600; font-size: 17px; }
+  .checks .q { color: var(--muted); font-size: 14.5px; margin-bottom: 6px; }
+  .check { display: grid; grid-template-columns: 22px 46px 200px 1fr; align-items: center; padding: 4px 6px; border-radius: 4px; cursor: pointer; }
+  .check:hover { background: var(--hover); } .check.on { background: var(--select); }
+  .check .id { font-weight: 600; } .check .r { color: var(--muted); font-size: 15px; }
+  .check .r.s2 { color: var(--warn); } .check .r.s3 { color: var(--bad); }
+  .detail { position: sticky; top: 22px; }
+  .detail dl { display: grid; grid-template-columns: 74px 1fr; gap: 8px 14px; margin: 14px 0; }
+  .detail dt { color: var(--muted); font-size: 14.5px; } .detail dd { margin: 0; }
+  .conn { display: grid; grid-template-columns: 22px 190px 1fr; gap: 4px 0; align-items: center; }
+  .conn .r { color: var(--muted); }
+
+  /* ---- recordings -------------------------------------------------------------------------- */
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 14px; }
+  input, select { background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 6px 10px; color: var(--ink); }
+  input::placeholder { color: var(--faint); }
+  button { border: 1px solid var(--rule); background: var(--surface); color: var(--ink); border-radius: 4px; padding: 6px 14px; cursor: pointer; font-weight: 500; }
+  button:hover { background: var(--hover); }
+  button.primary { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+  button.quiet { border-color: transparent; color: var(--muted); padding: 6px 8px; }
+  button.danger { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 14px; padding: 6px 10px; border-bottom: 1px solid var(--rule); }
+  td { padding: 7px 10px; border-bottom: 1px solid var(--hover); vertical-align: baseline; }
+  tr.rec { cursor: pointer; } tr.rec:hover td { background: var(--hover); }
+  tr.child td:first-child { padding-left: 30px; }
+  td.n { font-weight: 500; } td.num { text-align: right; }
+  .meta { color: var(--muted); max-width: 90ch; }
+  .plot { width: 100%; height: 220px; display: block; }
+  .plot.small { height: 140px; }
+  .legend { font-size: 14px; color: var(--muted); display: flex; gap: 16px; margin-top: 6px; }
+  .legend i { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; }
+  .results { display: grid; grid-template-columns: auto auto; gap: 4px 18px; }
+  .results dt { color: var(--muted); } .results dd { margin: 0; }
+  .log { max-height: 280px; overflow: auto; border: 1px solid var(--hover); border-radius: 4px; padding: 8px 10px; }
+  .log div { white-space: pre-wrap; } .log .w { color: var(--warn); } .log .b { color: var(--bad); }
+  .cursor { width: 100%; }
+  .readout { color: var(--muted); margin-top: 4px; }
+
+  /* ---- docs -------------------------------------------------------------------------------- */
+  .docs { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 36px; }
+  .doclist a { display: block; padding: 4px 8px; border-radius: 4px; color: var(--ink); text-decoration: none; }
+  .doclist a:hover { background: var(--hover); } .doclist a.on { background: var(--select); }
+  .doclist .sub { color: var(--muted); font-size: 14px; margin: 18px 8px 4px; }
+  .md { max-width: 820px; }
+  .md h1 { font-size: 28px; } .md h2 { font-size: 21px; } .md h3 { font-size: 17px; }
+  .md img { max-width: 100%; border: 1px solid var(--rule); border-radius: 6px; margin: 8px 0; }
+  .md table { font-size: 15px; margin: 10px 0; } .md td, .md th { border: 1px solid var(--rule); padding: 5px 8px; }
+  .md pre { background: var(--paper); padding: 10px 12px; border-radius: 4px; overflow: auto; }
+  .md code { background: var(--paper); padding: 1px 4px; border-radius: 3px; }
+  .md pre code { background: none; padding: 0; }
+
+  @media (max-width: 900px) {
+    .rail { position: static; width: auto; }
+    main { margin-left: 0; padding: 14px 16px 40px; }
+    .sheet { padding: 18px 16px; }
+    .cols, .docs { grid-template-columns: 1fr; }
+    .check { grid-template-columns: 22px 40px 1fr; } .check .r { grid-column: 2 / 4; }
+    .detail { position: static; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>GEN AUTO · STEERING</h1>
-  <nav id="nav">
-    <a href="#home">System</a><a href="#recordings">Recordings</a><a href="#docs">Docs</a><a href="/phone">Phone capture</a>
+<aside class="rail">
+  <div class="brand">Gen Auto steering</div>
+  <nav class="nav" id="nav">
+    <a href="#system">System</a><a href="#recordings">Recordings</a><a href="#docs">Docs</a><a href="/phone">Phone</a>
   </nav>
-  <div class="spacer"></div>
-  <span>hub <span id="wsPill" class="pill">connecting</span></span>
-  <span>motor <span id="statePill" class="pill">—</span></span>
-</header>
-<main id="main"></main>
+  <div class="state" id="state">Connecting</div>
+  <div class="state-line" id="stateLine">Waiting for the laptop app.</div>
+  <div class="angle" id="angle">—</div>
+  <div class="target" id="target"></div>
+  <div class="chain" id="chain"></div>
+  <div class="event mono" id="event"></div>
+  <div class="hub" id="hubLine"></div>
+</aside>
+<main><div class="sheet" id="page"></div></main>
 
 <script>
-// ---------------------------------------------------------------- utilities
-const $ = (s, el=document) => el.querySelector(s);
-const h = (tag, attrs={}, ...kids) => { const e=document.createElement(tag); for (const [k,v] of Object.entries(attrs)) { if (k==="class") e.className=v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else if (k==="html") e.innerHTML=v; else e.setAttribute(k,v); } for (const k of kids.flat()) if (k!=null) e.append(k.nodeType?k:document.createTextNode(k)); return e; };
-const api = async (path, opts) => { const r = await fetch(path, opts); if (!r.ok) throw new Error(path+" -> "+r.status); return r.json(); };
-const STATE = ["UNKNOWN","OK","BLOCKED","FAIL"], CS = ["REST","HOLD","FOLLOWING","TEST","FREE-SPIN","CALIBRATING","TRIPPED"];
-const fmt = (x, d=2) => (x==null||isNaN(x)) ? "—" : Number(x).toFixed(d);
+// ------------------------------------------------------------------ helpers
+const $ = (s, el = document) => el.querySelector(s);
+const h = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "html") e.innerHTML = v; else if (v !== null && v !== undefined) e.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(k));
+  return e;
+};
+const api = async (p, o) => { const r = await fetch(p, o); if (!r.ok) throw new Error(`${p} answered ${r.status}`); return r.json(); };
+const num = (x, d = 1) => (x == null || isNaN(x)) ? "—" : Number(x).toFixed(d).replace("-", "−");
+const signed = (x, d = 1) => (x == null || isNaN(x)) ? "—" : (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(d);
+const WORD = ["unknown", "ok", "blocked", "failed"];
+const CS_WORD = ["Resting", "Holding", "Following", "Testing", "Free-spin", "Calibrating", "Tripped"];
+const CS_LINE = ["Motor off. The wheel turns freely.", "Holding the commanded angle.", "Following a stream from the laptop.",
+  "Running a tuning test on the Teensy.", "No torque. Turn the wheel by hand.", "Finding the end stops.", "Tripped."];
+const RANK = [1, 0, 2, 3];
+const ROWS = [["laptop", "Laptop", ["D1", "D2", "D5"], "node"], ["usb", "USB", ["C1", "C2", "C3", "C4", "C5", "C6"], "link"],
+  ["teensy", "Teensy", ["T1", "T2", "T3", "T4"], "node"], ["can", "CAN", ["M1", "M2", "M3"], "link"],
+  ["motor", "Motor", ["M4", "M5", "M6"], "node"], null, ["safety", "Safety", ["S1", "S2"], "node"], ["hub", "Web hub", ["D3", "D4"], "node"]];
+const GROUP_TITLE = { C: "Laptop to Teensy link", S: "Safety", M: "Motor and CAN", T: "Teensy", D: "Data and services" };
+const COLORS = { ink: "#1b2129", signal: "#2b5fae", violet: "#7a5bb5", rust: "#b0683a", faint: "#a3aab3", rule: "#eceff2", muted: "#68717c" };
 
-// ---------------------------------------------------------------- live feed
-let ws, live = {telemetry:null, health:null, recording:null, events:[]};
+// ------------------------------------------------------------------ live state (rail)
+const live = { t: null, health: null, status: null, events: [], ws: false, lastEvent: null };
+
 function connect() {
-  ws = new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws");
-  ws.onopen = () => setPill("wsPill","online","ok");
-  ws.onclose = () => { setPill("wsPill","offline","bad"); setTimeout(connect, 1500); };
-  ws.onmessage = ev => { const m = JSON.parse(ev.data);
-    if (m.type==="telemetry") { live.telemetry=m; setPill("statePill", CS[m.cs]||m.cs, m.cs===6?"bad":m.cs===0?"":"ok"); }
-    else if (m.type==="health") { live.health=m; if (route()==="home") renderHomeLive(); }
-    else if (m.type==="recording"||m.type==="hello") { live.recording = m.recording||m; }
-    else if (m.type==="event"||m.type==="health_transition") { live.events.unshift(m); live.events=live.events.slice(0,60); if (route()==="home") renderEvents(); }
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  ws.onopen = () => { live.ws = true; drawRail(); };
+  ws.onclose = () => { live.ws = false; drawRail(); setTimeout(connect, 1500); };
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type === "telemetry") { live.t = m; drawHead(); }
+    else if (m.type === "event" || m.type === "health_transition") {
+      live.events.unshift(m); live.events = live.events.slice(0, 80); live.lastEvent = m; drawEvent();
+    }
   };
 }
-function setPill(id, text, cls) { const e=$("#"+id); e.textContent=text; e.className="pill "+(cls||""); }
 
-// ---------------------------------------------------------------- router
-function route() { return (location.hash||"#home").slice(1).split("/")[0]; }
+async function poll() {
+  try {
+    [live.health, live.status] = await Promise.all([api("/api/health"), api("/status")]);
+    drawRail();
+    if (route().page === "system") drawChecks();
+  } catch (e) { live.health = null; drawRail(); }
+  setTimeout(poll, 1000);
+}
+
+function rowState(nodes) {
+  let worst = 1, wid = null, off = false;
+  for (const id of nodes) {
+    const n = live.nodes[id]; if (!n) continue;
+    if (n.optional && n.state === 2) { if (id === nodes[0]) off = true; continue; }
+    if (RANK[n.state] > RANK[worst]) { worst = n.state; wid = id; }
+  }
+  return { st: worst, wid, off };
+}
+
+function rowValues() {
+  const t = live.t, s = live.status || {}, n = live.nodes;
+  const v = {};
+  const rec = s.recording || {};
+  v.laptop = rec.active ? `recording ${rec.name || ""}` : "";
+  v.usb = n.C4 && n.C4.state === 1 ? (s.telemetry_hz ? `${Math.round(s.telemetry_hz)} Hz` : "live") : (n.C1 && n.C1.state === 1 ? "silent" : "closed");
+  v.teensy = n.T1 && n.T1.reason ? n.T1.reason.split(",")[0] : "";
+  v.can = n.M3 ? n.M3.reason.replace(" on bus", "") : "";
+  v.motor = t && n.M4 && n.M4.state === 1 ? `${signed(t.cur)} A` : (n.M4 && n.M4.state !== 1 ? "no reply" : "");
+  v.safety = n.S2 && n.S2.state === 3 ? "tripped" : (n.S1 && n.S1.state === 1 ? "armed" : n.S1 && n.S1.state === 2 ? "switch open" : "");
+  v.hub = `${s.clients ?? 1} client${(s.clients ?? 1) === 1 ? "" : "s"}`;
+  return v;
+}
+
+function drawRail() {
+  drawHead();
+  const chain = $("#chain"); chain.innerHTML = "";
+  if (!live.health) {
+    chain.append(h("div", { class: "muted" }, live.ws ? "Loading checks…" : "The hub is not answering. Is the laptop app running with the hub on?"));
+    return;
+  }
+  live.nodes = Object.fromEntries(live.health.nodes.map(n => [n.id, n]));
+  const vals = rowValues();
+  const rows = [];
+  for (const r of ROWS) {
+    if (!r) { chain.append(h("div", { class: "gap" })); continue; }
+    const [key, label, nodes, kind] = r;
+    const { st, wid, off } = rowState(nodes);
+    const el = h("div", { class: "row " + kind, title: nodes.map(id => `${id} ${live.nodes[id].name}: ${WORD[live.nodes[id].state]}`).join("\n") },
+      h("span", { class: "mark " + (off ? "off" : "s" + st) }),
+      h("span", { class: "name" }, label), h("span", { class: "val" }, vals[key] || ""),
+      wid ? h("span", { class: "why", style: `color:var(--${st === 3 ? "bad" : st === 2 ? "warn" : "muted"})` }, `${wid}  ${live.nodes[wid].reason || live.nodes[wid].name}`) : null);
+    el.dataset.key = key; el.dataset.st = st; el.style.cursor = "pointer";
+    el.onclick = () => { location.hash = "#system/" + (wid || nodes[0]); };
+    chain.append(el); rows.push(el);
+  }
+  // the chain line: between laptop..teensy (USB) and teensy..motor (CAN), coloured by the link row
+  for (const [from, link, to] of [["laptop", "usb", "teensy"], ["teensy", "can", "motor"]]) {
+    const st = Number(chain.querySelector(`[data-key=${link}]`).dataset.st);
+    const col = ["var(--faint)", "var(--ok)", "var(--warn)", "var(--bad)"][st];
+    for (const k of [from, link]) {
+      const el = chain.querySelector(`[data-key=${k}]`);
+      const line = h("span", { class: "line", style: `background:${col};${k === from ? "top:50%;" : ""}${st === 0 ? "opacity:.6" : ""}` });
+      el.append(line);
+    }
+    const end = chain.querySelector(`[data-key=${to}]`);
+    end.append(h("span", { class: "line", style: `background:${col};bottom:50%;top:-2px` }));
+  }
+  $("#hubLine").textContent = live.ws ? "" : "Live feed reconnecting…";
+}
+
+function drawHead() {
+  const t = live.t, n = live.nodes || {};
+  const st = $("#state"), line = $("#stateLine");
+  if (!t) {
+    st.textContent = live.health ? "Waiting for the Teensy" : "Connecting"; st.className = "state";
+    line.textContent = live.health ? "No telemetry yet. See USB below." : "Waiting for the laptop app."; line.className = "state-line";
+    $("#angle").textContent = "—"; $("#target").textContent = ""; return;
+  }
+  st.textContent = CS_WORD[t.cs] || t.cs; st.className = "state" + (t.cs === 6 ? " bad" : "");
+  let txt = CS_LINE[t.cs] || "", cls = "";
+  if (t.cs === 6 && n.S2) { txt = n.S2.reason; cls = " bad"; }
+  line.textContent = txt; line.className = "state-line" + cls;
+  $("#angle").textContent = `${signed(t.pos)}°`;
+  $("#target").textContent = [1, 2, 3, 5].includes(t.cs) ? `target ${signed(t.sp)}°` : "";
+}
+
+function drawEvent() {
+  const m = live.lastEvent, el = $("#event"); if (!m) return;
+  const time = new Date().toTimeString().slice(0, 5);
+  if (m.type === "event") { el.textContent = `${time}  ${m.code} ${m.text || ""}`; el.className = "event mono" + (m.code === "trip" ? " bad" : ""); }
+  else { el.textContent = `${time}  ${m.node} ${m.from.toLowerCase()} → ${m.to.toLowerCase()}`; el.className = "event mono" + (m.to === "FAIL" ? " bad" : m.to === "BLOCKED" ? " warn" : ""); }
+}
+
+// ------------------------------------------------------------------ router
+function route() { const [page, arg] = (location.hash || "#system").slice(1).split("/"); return { page: page || "system", arg }; }
 window.addEventListener("hashchange", render);
 async function render() {
-  const r = route(), arg = (location.hash.split("/")[1]||"");
-  for (const a of $("#nav").querySelectorAll("a")) a.classList.toggle("active", a.getAttribute("href")==="#"+r);
-  const main = $("#main"); main.innerHTML="";
+  const { page, arg } = route();
+  for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("on", a.getAttribute("href") === "#" + page);
+  const root = $("#page"); root.innerHTML = "";
   try {
-    if (r==="home") await renderHome(main);
-    else if (r==="recordings") await (arg ? renderRecording(main, arg) : renderRecordings(main));
-    else if (r==="docs") await renderDocs(main, arg);
-  } catch (e) { main.append(h("div",{class:"card"}, "Error: "+e.message)); }
+    if (page === "system") await pageSystem(root, arg);
+    else if (page === "recordings") await (arg ? pageRecording(root, arg) : pageRecordings(root));
+    else if (page === "docs") await pageDocs(root, arg);
+  } catch (e) { root.append(h("p", { class: "muted" }, `Could not load this page: ${e.message}.`)); }
 }
 
-// ---------------------------------------------------------------- home: system + connectivity
-async function renderHome(main) {
-  main.append(h("h2",{}, "System"));
-  main.append(h("p",{class:"muted"}, "Live view of the steering robot from the laptop hub. Every tile is a status group; open a tile to see the checks inside it. The desktop app on the laptop is the control surface - this page is for checking connectivity, browsing recordings and reading the docs."));
-  main.append(h("div",{class:"card", id:"strip"}));
-  main.append(h("div",{class:"grid g2"},
-    h("div",{class:"card"}, h("h3",{}, "Connectivity check"), h("div",{id:"conn", class:"kv"})),
-    h("div",{class:"card"}, h("h3",{}, "Recent events"), h("div",{id:"events", class:"events"}, "—"))));
-  main.append(h("div",{class:"card"}, h("h3",{}, "All checks"), h("div",{id:"tiles", class:"tiles"})));
-  await renderHomeLive(true);
+// ------------------------------------------------------------------ system
+let selected = "C1";
+async function pageSystem(root, arg) {
+  if (arg) selected = arg;
+  root.append(h("h1", {}, "System"),
+    h("p", { class: "lead" }, "The steering robot as the laptop app sees it. The laptop app is where you drive; this page is for checking the system, browsing recordings and reading the docs, from any device on the same network."),
+    h("img", { class: "figure", src: "/diagrams/01_system_overview.svg", alt: "System overview: laptop, Teensy, motor, switch, wheel, phone and planner, and the links between them." }));
+  root.append(h("h2", {}, "Connectivity"),
+    h("p", { class: "lead" }, "Each hop from this page to the wheel, in order. The first one that isn't green is where to look."),
+    h("div", { class: "conn", id: "conn" }));
+  root.append(h("div", { class: "cols" },
+    h("div", { class: "checks" }, h("h2", {}, "All checks"), h("div", { id: "checks" })),
+    h("div", { class: "detail", id: "detail" })));
+  drawChecks();
 }
-async function renderHomeLive(full=false) {
-  const hl = await api("/api/health").catch(()=>null);
-  if (!hl) return;
-  const st = await api("/status").catch(()=>null);
-  const g = Object.fromEntries(hl.groups.map(x=>[x.id,x]));
-  const t = live.telemetry;
-  const tile = (id, title, big, small) => h("div",{class:"tile st"+(g[id]?g[id].state:0), onclick:()=>location.hash="#home", title:g[id]?g[id].question:""},
-      h("div",{class:"t"}, title), h("div",{class:"b"}, big), h("div",{class:"s"}, small));
-  const strip = $("#strip"); strip.innerHTML="";
-  const rec = st && st.recording && st.recording.active ? `REC ${st.recording.name}` : "IDLE";
-  const link = (id, label, state) => h("div",{class:"link"}, label, h("div",{class:"bar", style:`background:${["var(--unk)","var(--ok)","var(--warn)","var(--bad)"][state]}`}), "<->");
-  strip.append(h("div",{class:"strip"},
-    tile("D", "Laptop app  (D)", rec, st ? `${st.clients} client(s)` : "hub?"),
-    link("C", "USB 2 Mbps", g.C.state),
-    tile("T", "CCM / Teensy  (T)", t ? CS[t.cs] : "no data", "1 kHz control loop"),
-    link("M", "CAN 1 Mbps", g.M.state),
-    tile("M", "Motor  (M)", t ? `${fmt(t.pos,1)} deg` : "—", t ? `${fmt(t.cur,1)} A  ${fmt(t.vel,0)} deg/s` : "")));
-  strip.append(h("div",{class:"strip", style:"margin-top:10px"}, h("div"), h("div"), tile("S", "Safety  (S)", g.S.state===1?"ARMED":g.S.state===2?"IDLE":g.S.state===3?"TRIPPED":"—", "idle switch, trips"), h("div"), h("div")));
-  const nodes = Object.fromEntries(hl.nodes.map(n=>[n.id,n]));
-  const conn = $("#conn"); conn.innerHTML="";
-  const rows = [["this page -> hub", "ok (you are reading it)"], ["hub -> laptop app", st ? "ok" : "no status"],
-    ["laptop -> Teensy", `${STATE[nodes.C4.state]} ${nodes.C4.reason}`], ["Teensy hears laptop", `${STATE[nodes.C5.state]} ${nodes.C5.reason}`],
-    ["Teensy -> motor", `${STATE[nodes.M4.state]} ${nodes.M4.reason}`], ["idle switch", `${STATE[nodes.S1.state]} ${nodes.S1.reason}`],
-    ["zero + limits", `${STATE[nodes.T2.state]} ${nodes.T2.reason}`], ["phone", `${STATE[nodes.D4.state]} ${nodes.D4.reason}`]];
-  for (const [k,v] of rows) conn.append(h("b",{},k), h("span",{}, v));
-  const tiles = $("#tiles"); tiles.innerHTML="";
-  for (const n of hl.nodes) tiles.append(h("div",{class:"tile st"+n.state},
-    h("div",{class:"t"}, `${n.id} ${n.name}`), h("div",{class:"b", style:"font-size:16px"}, n.optional&&n.state===2?"OFF":STATE[n.state]), h("small",{}, n.reason||""),
-    h("details",{}, h("summary",{}, "what / fix"), h("div",{}, h("b",{},"OK: "), n.ok), h("div",{}, h("b",{},"Bad: "), n.bad), h("div",{}, h("b",{},"Fix: "), n.fix))));
-  renderEvents();
-}
-function renderEvents() { const e=$("#events"); if (!e) return; e.innerHTML=""; for (const m of live.events) e.append(h("div",{class:m.type==="event"&&m.code==="trip"?"b":m.to==="FAIL"?"b":m.to==="BLOCKED"?"w":""}, m.type==="event"?`${m.code} ${m.arg||""} ${m.text||""}`:`${m.node} ${m.from} -> ${m.to}  ${m.reason}`)); if (!live.events.length) e.textContent="—"; }
 
-// ---------------------------------------------------------------- recordings
-async function renderRecordings(main) {
-  main.append(h("h2",{}, "Recordings"));
-  const sort = h("select",{onchange:()=>load()}, ...["recent","pinned","playbacks","name"].map(v=>h("option",{value:v},v)));
-  const coll = h("select",{onchange:()=>load()}, h("option",{value:""},"all collections"));
-  const search = h("input",{placeholder:"search name / tags / notes", oninput:()=>load()});
-  main.append(h("div",{class:"card", style:"display:flex; gap:10px; align-items:center"}, "sort", sort, coll, search));
-  const table = h("table",{}, h("thead",{}, h("tr",{}, h("th",{},"name"), h("th",{},"kind"), h("th",{},"when"), h("th",{},"dur"), h("th",{},"err rms"), h("th",{},"score"), h("th",{},"health"), h("th",{},"tags"))), h("tbody"));
-  main.append(h("div",{class:"card"}, table));
+function dot(st, off) { return h("span", { class: "mark " + (off ? "off" : "s" + st), style: "display:inline-block;width:10px;height:10px;border-radius:50%" }); }
+
+function drawChecks() {
+  if (!live.health || !$("#checks")) return;
+  const n = live.nodes;
+  const conn = $("#conn"); conn.innerHTML = "";
+  const hop = (label, st, reason) => conn.append(dot(st), h("span", {}, label), h("span", { class: "r" }, reason));
+  hop("This page to the hub", 1, "you are reading it");
+  hop("Hub to the laptop app", live.status ? 1 : 3, live.status ? "answering" : "no answer");
+  for (const [id, label] of [["C4", "Laptop to Teensy"], ["C5", "Teensy hears the laptop"], ["M4", "Teensy to motor"], ["S1", "Idle switch"], ["T2", "Zero and end stops"], ["D4", "Phone"]]) {
+    const x = n[id]; hop(label, x.optional && x.state === 2 ? 0 : x.state, `${id}  ${x.reason || WORD[x.state]}`);
+  }
+  const list = $("#checks"); list.innerHTML = "";
+  for (const g of ["C", "S", "M", "T", "D"]) {
+    const grp = live.health.groups.find(x => x.id === g);
+    list.append(h("div", { class: "grp" }, GROUP_TITLE[g]), h("div", { class: "q" }, grp.question));
+    for (const x of live.health.nodes.filter(x => x.group === g)) {
+      const off = x.optional && x.state === 2;
+      list.append(h("div", { class: "check" + (x.id === selected ? " on" : ""), onclick: () => { selected = x.id; drawChecks(); } },
+        dot(x.state, off), h("span", { class: "id" }, x.id), h("span", {}, x.name),
+        h("span", { class: "r s" + (off ? 0 : x.state) }, off ? "off" : (x.reason || WORD[x.state]))));
+    }
+  }
+  const x = n[selected] || live.health.nodes[0];
+  const off = x.optional && x.state === 2;
+  const d = $("#detail"); d.innerHTML = "";
+  d.append(h("h2", {}, `${x.id}  ${x.name}`),
+    h("div", { style: `color:var(--${off || x.state === 1 ? "ink" : x.state === 3 ? "bad" : x.state === 2 ? "warn" : "muted"})` }, (off ? "off" : WORD[x.state]) + (x.reason ? `: ${x.reason}` : "")),
+    h("div", { class: "muted" }, (x.source === "fw" ? "Decided by the Teensy." : "Decided by the laptop.") + (x.optional ? " Optional: off is fine." : "")),
+    h("dl", {}, h("dt", {}, "OK means"), h("dd", {}, x.ok), h("dt", {}, "If not"), h("dd", {}, x.bad), h("dt", {}, "Fix"), h("dd", {}, x.fix)));
+}
+
+// ------------------------------------------------------------------ recordings
+const KIND = { manual: "Recording", freespin: "Hand motion", trajectory: "Waveform", playback: "Playback", test_step: "Step test", test_relay: "Relay test", calibration: "Calibration" };
+async function pageRecordings(root) {
+  root.append(h("h1", {}, "Recordings"),
+    h("p", { class: "lead" }, "Newest first. Playbacks sit under the recording they played. Open one to see its traces, results and events, or to pin, rename, tag or hide it."));
+  const search = h("input", { placeholder: "Search names, notes, tags", oninput: () => load(), style: "min-width:260px" });
+  const sort = h("select", { onchange: () => load() }, ...[["recent", "Newest"], ["pinned", "Pinned first"], ["playbacks", "Most played"], ["name", "Name"]].map(([v, l]) => h("option", { value: v }, l)));
+  const coll = h("select", { onchange: () => load() }, h("option", { value: "" }, "All collections"));
+  root.append(h("div", { class: "toolbar" }, search, sort, coll));
+  const tbody = h("tbody");
+  root.append(h("table", {}, h("thead", {}, h("tr", {}, ...["Name", "Kind", "When", "Length", "RMS error", "Health", "Tags"].map((x, i) => h("th", { class: i === 3 || i === 4 ? "num" : "" }, x)))), tbody));
   let first = true;
   async function load() {
     const d = await api(`/api/recordings?sort=${sort.value}&collection=${encodeURIComponent(coll.value)}&search=${encodeURIComponent(search.value)}`);
-    if (first) { first=false; for (const c of d.collections) coll.append(h("option",{value:c},c)); }
-    const tb = $("tbody", table); tb.innerHTML="";
-    const row = (r, pb) => h("tr",{class:"row"+(pb?" pb":""), onclick:()=>location.hash="#recordings/"+r.uid},
-      h("td",{}, (r.pinned?"★ ":"")+(pb?"↳ ":"")+r.name, r.playback_count?h("span",{class:"muted"}, ` · ${r.playback_count} pb`):null),
-      h("td",{class:"mono"}, r.kind), h("td",{class:"mono"}, r.created_str), h("td",{class:"mono"}, fmt(r.duration_s,1)+"s"),
-      h("td",{class:"mono"}, fmt(r.metrics.err_rms_deg)), h("td",{class:"mono"}, r.metrics.tracking_score_pct==null?"—":fmt(r.metrics.tracking_score_pct,0)+"%"),
-      h("td",{class:"mono", style:r.health_worst?"color:var(--warn)":""}, r.health_worst||"all OK"), h("td",{class:"mono"}, r.tags.join(", ")));
-    for (const r of d.recordings) { tb.append(row(r)); for (const p of r.playbacks||[]) tb.append(row(p,true)); }
-    if (!d.recordings.length) tb.append(h("tr",{}, h("td",{colspan:8, class:"muted"}, "no recordings yet")));
+    if (first) { first = false; for (const c of d.collections) coll.append(h("option", { value: c }, c)); }
+    tbody.innerHTML = "";
+    const row = (r, child) => h("tr", { class: "rec" + (child ? " child" : ""), onclick: () => location.hash = "#recordings/" + r.uid },
+      h("td", { class: "n" }, r.name, r.pinned ? h("span", { class: "muted" }, "  pinned") : null),
+      h("td", { class: "muted" }, KIND[r.kind] || r.kind),
+      h("td", { class: "muted" }, r.created_str.slice(0, 16)),
+      h("td", { class: "num" }, `${num(r.duration_s)} s`),
+      h("td", { class: "num" }, r.metrics.err_rms_deg == null ? "—" : `${num(r.metrics.err_rms_deg, 2)}°`),
+      h("td", { style: r.health_worst ? `color:var(--${r.health_worst === "FAIL" ? "bad" : "warn"})` : "", class: r.health_worst ? "" : "muted" }, r.health_worst ? r.health_summary || r.health_worst : "all ok"),
+      h("td", { class: "muted" }, r.tags.join(", ")));
+    for (const r of d.recordings) { tbody.append(row(r)); for (const p of r.playbacks || []) tbody.append(row(p, true)); }
+    if (!d.recordings.length) tbody.append(h("tr", {}, h("td", { colspan: 7, class: "muted" }, "No recordings yet. Record one from the Drive page of the laptop app.")));
   }
   await load();
 }
 
-async function renderRecording(main, uid) {
-  const r = await api("/api/recordings/"+uid);
-  main.append(h("p",{}, h("a",{href:"#recordings", style:"color:var(--accent)"}, "← recordings")));
-  main.append(h("h2",{}, r.name, h("span",{class:"pill", style:"margin-left:10px"}, r.kind)));
-  const info = h("div",{class:"kv"});
-  const kv = (k,v)=>info.append(h("b",{},k), h("span",{},v));
-  kv("when", r.created_str); kv("duration", `${fmt(r.duration_s,2)} s  ·  ${r.samples} samples`); kv("collection", r.collection);
-  if (r.parent) kv("playback of", h("a",{href:"#recordings/"+r.parent.uid, style:"color:var(--accent)"}, r.parent.name));
-  kv("gains", `Kp ${r.gains.kp??"?"}  Kd ${r.gains.kd??"?"}  Ki ${r.gains.ki??"?"}  Tff ${r.gains.tff_Nm??"?"}`);
-  kv("limits", `${fmt(r.gains.limit_left_deg,1)} … ${fmt(r.gains.limit_right_deg,1)} deg`);
-  kv("health", r.health_summary||"all OK"); kv("folder", r.path);
-  // data handling
-  const name = h("input",{value:r.name}), notes = h("input",{value:r.notes, placeholder:"notes", style:"width:360px"}), tags = h("input",{value:r.tags.join(", "), placeholder:"tags"});
-  const save = async (body) => { await api("/api/recordings/"+uid, {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body)}); };
-  const edit = h("div",{style:"display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px"},
-    h("button",{class:"ghost", onclick:async()=>{await save({pinned:!r.pinned}); render();}}, r.pinned?"unpin":"pin"),
-    name, h("button",{class:"ghost", onclick:()=>save({name:name.value}).then(render)}, "rename"),
-    notes, tags, h("button",{class:"primary", onclick:()=>save({notes:notes.value, tags:tags.value}).then(render)}, "save"),
-    h("button",{class:"danger", onclick:async()=>{ if (confirm("Hide this recording from the library? Files stay on disk.")) { await save({delete:true}); location.hash="#recordings"; } }}, "delete"));
-  main.append(h("div",{class:"card"}, info, edit));
-  // metrics
-  const m = r.metrics, mk = Object.keys(m).filter(k=>typeof m[k]==="number");
-  main.append(h("div",{class:"card"}, h("h3",{},"Metrics"), h("div",{class:"kv"}, ...mk.flatMap(k=>[h("b",{},k), h("span",{}, fmt(m[k],3))]))));
-  // plots
-  const plots = h("div",{class:"card"}, h("h3",{},"Traces"));
-  const specs = [["position [deg]", [["setpoint_deg","#ffb432"],["target_deg","#ff78b4"],["position_deg","#50b4ff"]]],
-                 ["error [deg]", [["error_deg","#dc4646"]]], ["velocity [deg/s]", [["velocity_deg_s","#8cdc64"]]],
-                 ["current [A] / torque ff [Nm]", [["current_A","#c88cff"],["torque_cmd_Nm","#ff78b4"]]]];
-  const canvases = [];
-  for (const [title, series] of specs) { const c = h("canvas",{class:"plot"}); canvases.push([c, series]);
-    plots.append(h("div",{class:"legend"}, h("span",{class:"muted"}, title+"  "), ...series.map(([k,col])=>h("span",{}, h("i",{style:"background:"+col}), k))), c); }
-  const cursor = h("input",{type:"range", min:0, max:1000, value:0, style:"width:100%"});
-  const readout = h("div",{class:"mono muted"});
-  plots.append(cursor, readout);
-  main.append(plots);
-  if (r.video) main.append(h("div",{class:"card"}, h("h3",{},"Phone video"), h("video",{src:"/api/recordings/"+uid+"/video", controls:"", style:"max-width:100%; border-radius:8px"})));
-  const ev = h("div",{class:"events"}, "loading…"); main.append(h("div",{class:"card"}, h("h3",{},"Events & health during the recording"), ev));
+const METRICS = [["tracking_score_pct", "Tracking score", v => `${num(v, 0)}%`], ["err_rms_deg", "RMS error", v => `${num(v, 2)}°`],
+  ["err_max_abs_deg", "Worst error", v => `${num(v, 2)}°`], ["vel_max_abs_deg_s", "Peak speed", v => `${num(v, 0)}°/s`],
+  ["current_max_abs_A", "Peak current", v => `${num(v, 1)} A`], ["pos_range_deg", "Range used", v => `${num(v, 0)}°`],
+  ["step_rise_s", "Rise time", v => `${num(v, 3)} s`], ["step_overshoot_pct", "Overshoot", v => `${num(v, 1)}%`],
+  ["step_settle_s", "Settling", v => `${num(v, 2)} s`], ["relay_Ku_Nm_per_rad", "Ku", v => `${num(v, 1)} Nm/rad`],
+  ["relay_Tu_s", "Tu", v => `${num(v, 3)} s`], ["max_gap_ms", "Longest gap", v => `${num(v, 0)} ms`]];
+
+async function pageRecording(root, uid) {
+  const r = await api("/api/recordings/" + uid);
+  root.append(h("p", {}, h("a", { href: "#recordings" }, "All recordings")));
+  root.append(h("h1", {}, r.name));
+  let meta = `${KIND[r.kind] || r.kind}, ${num(r.duration_s)} s, ${r.samples.toLocaleString()} samples. In ${r.collection}, ${r.created_str}.`;
+  root.append(h("p", { class: "meta" }, meta, r.parent ? h("span", {}, " Playback of ", h("a", { href: "#recordings/" + r.parent.uid }, r.parent.name), ".") : null,
+    r.health_summary ? ` Health during it: ${r.health_summary}.` : " Health during it: all ok."));
+  const save = body => api("/api/recordings/" + uid, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const name = h("input", { value: r.name, "aria-label": "Name" });
+  root.append(h("div", { class: "toolbar" },
+    name, h("button", { onclick: () => save({ name: name.value }).then(render) }, "Rename"),
+    h("button", { class: "quiet", onclick: () => save({ pinned: !r.pinned }).then(render) }, r.pinned ? "Unpin" : "Pin"),
+    h("button", { class: "quiet danger", onclick: async () => { if (confirm("Hide this recording from the library? The files stay on disk.")) { await save({ delete: true }); location.hash = "#recordings"; } } }, "Hide")));
+
   const d = await api(`/api/recordings/${uid}/data`);
   const t = d.columns.t_s;
-  let cur = 0;
-  const draw = () => { for (const [c, series] of canvases) plotSeries(c, t, series.map(([k,col])=>[d.columns[k], col]), cur); };
-  cursor.oninput = () => { cur = t[Math.round(cursor.value/1000*(t.length-1))]; const i=Math.round(cursor.value/1000*(t.length-1)); readout.textContent = `t ${fmt(t[i],3)} s   setpoint ${fmt(d.columns.setpoint_deg[i])}   position ${fmt(d.columns.position_deg[i])}   error ${fmt(d.columns.error_deg[i])}   vel ${fmt(d.columns.velocity_deg_s[i],1)}   I ${fmt(d.columns.current_A[i])} A`; draw(); };
-  draw(); window.addEventListener("resize", draw);
-  const e = await api(`/api/recordings/${uid}/events`); ev.innerHTML="";
-  for (const x of e.events) ev.append(h("div",{class:x.action&&!x.allowed?"w":x.code==="trip"?"b":""}, `${fmt(x.t,2)}s  ${x.src||""}  ${x.action||x.code||""} ${x.allowed===false?"BLOCKED "+(x.reasons||[]).join("; "):""} ${x.text||""}`));
-  for (const x of e.health.filter(x=>x.kind==="transition")) ev.append(h("div",{class:x.to==="FAIL"?"b":x.to==="BLOCKED"?"w":""}, `${fmt(x.t,2)}s  health ${x.node} ${x.from} -> ${x.to}  ${x.reason}`));
-  if (!ev.children.length) ev.textContent="no events";
+  const specs = [
+    ["Position", "plot", [["setpoint_deg", COLORS.ink, "setpoint"], ["target_deg", COLORS.violet, "stream target"], ["position_deg", COLORS.signal, "position"]]],
+    ["Error", "plot small", [["error_deg", COLORS.rust, "error"]]],
+    ["Speed and current", "plot small", [["velocity_deg_s", COLORS.signal, "speed °/s"], ["current_A", COLORS.violet, "current A"]]]];
+  const canvases = [];
+  for (const [title, cls, series] of specs) {
+    const c = h("canvas", { class: cls, role: "img", "aria-label": `${title} over time` });
+    canvases.push([c, series]);
+    root.append(h("h3", {}, title), c, h("div", { class: "legend" }, ...series.map(([, col, l]) => h("span", {}, h("i", { style: "background:" + col }), l))));
+  }
+  const cursor = h("input", { type: "range", min: 0, max: t.length - 1, value: 0, class: "cursor", "aria-label": "Cursor time" });
+  const readout = h("div", { class: "readout mono" });
+  root.append(cursor, readout);
+  let ci = 0;
+  const draw = () => { for (const [c, series] of canvases) plot(c, t, series.map(([k, col]) => [d.columns[k], col]), t[ci]); };
+  const C = d.columns;
+  cursor.oninput = () => { ci = Number(cursor.value);
+    readout.textContent = `t ${num(t[ci], 2)} s   setpoint ${signed(C.setpoint_deg[ci])}°   position ${signed(C.position_deg[ci])}°   error ${signed(C.error_deg[ci])}°   speed ${signed(C.velocity_deg_s[ci], 0)}°/s   current ${signed(C.current_A[ci])} A`;
+    draw(); };
+  cursor.oninput(); window.addEventListener("resize", draw);
+
+  const m = r.metrics;
+  const res = h("dl", { class: "results" });
+  for (const [k, l, f] of METRICS) if (m[k] != null && !isNaN(m[k])) res.append(h("dt", {}, l), h("dd", {}, f(m[k])));
+  const g = r.gains || {};
+  const notes = h("input", { value: r.notes, placeholder: "What was this run?", style: "width:100%" });
+  const tags = h("input", { value: r.tags.join(", "), placeholder: "Tags, comma separated", style: "width:100%;margin-top:8px" });
+  root.append(h("div", { class: "cols", style: "margin-top:20px" },
+    h("div", {}, h("h2", {}, "Results"), res,
+      h("h2", {}, "Setup"), h("p", {}, `Kp ${g.kp ?? "?"}, Kd ${g.kd ?? "?"}, Ki ${g.ki ?? "?"}, Tff ${g.tff_Nm ?? "?"}.`,
+        g.limits_valid ? ` End stops at ${signed(g.limit_left_deg, 0)}° and ${signed(g.limit_right_deg, 0)}°.` : " End stops not set."),
+      h("p", { class: "mono muted" }, r.path)),
+    h("div", {}, h("h2", {}, "Notes"), notes, tags, h("div", { style: "margin-top:8px" },
+      h("button", { class: "primary", onclick: () => save({ notes: notes.value, tags: tags.value }).then(render) }, "Save notes")))));
+  if (r.video) root.append(h("h2", {}, "Phone video"), h("video", { src: "/api/recordings/" + uid + "/video", controls: "", style: "max-width:100%;border-radius:6px" }));
+  const log = h("div", { class: "log mono" }, "Loading…");
+  root.append(h("h2", {}, "Events and health during the recording"), log);
+  const e = await api(`/api/recordings/${uid}/events`); log.innerHTML = "";
+  for (const x of e.events) log.append(h("div", { class: x.action && x.allowed === false ? "w" : x.code === "trip" ? "b" : "" },
+    `${num(x.t, 2).padStart(7)} s  ${x.action || x.code || ""}${x.allowed === false ? "  not allowed: " + (x.reasons || []).join("; ") : ""} ${x.text || ""}`));
+  for (const x of e.health.filter(x => x.kind === "transition")) log.append(h("div", { class: x.to === "FAIL" ? "b" : x.to === "BLOCKED" ? "w" : "" },
+    `${num(x.t, 2).padStart(7)} s  ${x.node} ${x.from.toLowerCase()} → ${x.to.toLowerCase()}  ${x.reason}`));
+  if (!log.children.length) log.textContent = "Nothing happened besides the recording itself.";
 }
 
-// tiny canvas plotter (no dependencies, works offline)
-function plotSeries(canvas, t, series, cursorT) {
-  const dpr = window.devicePixelRatio||1, W = canvas.clientWidth, H = canvas.clientHeight;
-  canvas.width = W*dpr; canvas.height = H*dpr; const ctx = canvas.getContext("2d"); ctx.scale(dpr,dpr);
-  const L=48, R=10, T=8, B=22; ctx.clearRect(0,0,W,H);
-  const vals = series.flatMap(([ys])=>ys.filter(v=>v!=null)); if (!vals.length) return;
-  let lo=Math.min(...vals), hi=Math.max(...vals); if (hi-lo<1e-6) { hi+=1; lo-=1; } const pad=(hi-lo)*0.08; lo-=pad; hi+=pad;
-  const t0=t[0], t1=t[t.length-1]||1; const X=v=>L+(v-t0)/(t1-t0)*(W-L-R), Y=v=>T+(hi-v)/(hi-lo)*(H-T-B);
-  ctx.strokeStyle="#262c3a"; ctx.lineWidth=1; ctx.font="11px monospace"; ctx.fillStyle="#8a92a4";
-  for (let i=0;i<=4;i++){ const v=lo+(hi-lo)*i/4, y=Y(v); ctx.beginPath(); ctx.moveTo(L,y); ctx.lineTo(W-R,y); ctx.stroke(); ctx.fillText(v.toFixed(1), 4, y+4); }
-  for (let i=0;i<=6;i++){ const v=t0+(t1-t0)*i/6, x=X(v); ctx.fillText(v.toFixed(1)+"s", x-10, H-6); }
-  for (const [ys,col] of series) { ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.beginPath(); let pen=false;
-    for (let i=0;i<ys.length;i++){ const v=ys[i]; if (v==null){pen=false;continue;} const x=X(t[i]), y=Y(v); if(!pen){ctx.moveTo(x,y);pen=true;} else ctx.lineTo(x,y);} ctx.stroke(); }
-  if (cursorT!=null) { ctx.strokeStyle="#ffe650"; ctx.lineWidth=1.5; const x=X(cursorT); ctx.beginPath(); ctx.moveTo(x,T); ctx.lineTo(x,H-B); ctx.stroke(); }
+// small canvas plotter: no dependencies, works offline at the track
+function plot(canvas, t, series, cursorT) {
+  const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  const ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H);
+  const L = 46, R = 24, T = 6, B = 22;
+  const vals = series.flatMap(([ys]) => ys.filter(v => v != null)); if (!vals.length) return;
+  let lo = Math.min(...vals), hi = Math.max(...vals); if (hi - lo < 1e-6) { hi += 1; lo -= 1; }
+  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  const t0 = t[0], t1 = t[t.length - 1] || 1;
+  const X = v => L + (v - t0) / (t1 - t0) * (W - L - R), Y = v => T + (hi - v) / (hi - lo) * (H - T - B);
+  ctx.font = "12px Barlow, sans-serif"; ctx.fillStyle = COLORS.muted; ctx.strokeStyle = COLORS.rule; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) { const v = lo + (hi - lo) * i / 4, y = Y(v); ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(W - R, y); ctx.stroke(); ctx.fillText(v.toFixed(Math.abs(hi - lo) < 10 ? 1 : 0).replace("-", "−"), 4, y + 4); }
+  for (let i = 0; i <= 6; i++) { const v = t0 + (t1 - t0) * i / 6; ctx.fillText(v.toFixed(1) + " s", X(v) - 12, H - 5); }
+  for (const [ys, col] of series) {
+    ctx.strokeStyle = col; ctx.lineWidth = col === COLORS.ink ? 1.2 : 1.8; ctx.beginPath(); let pen = false;
+    for (let i = 0; i < ys.length; i++) { const v = ys[i]; if (v == null) { pen = false; continue; } const x = X(t[i]), y = Y(v); if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y); }
+    ctx.stroke();
+  }
+  if (cursorT != null) { ctx.strokeStyle = COLORS.ink; ctx.lineWidth = 1; const x = X(cursorT); ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, H - B); ctx.stroke(); }
 }
 
-// ---------------------------------------------------------------- docs
-async function renderDocs(main, id) {
+// ------------------------------------------------------------------ docs
+const DIAGRAMS = [["01_system_overview", "System overview"], ["02_software_map", "Software map"], ["03_control_cascade", "Control cascade"],
+  ["04_state_machine", "Controller states"], ["05_health_tree", "Health checks"], ["06_root_cause", "Root cause"],
+  ["07_data_lineage", "Recordings and lineage"], ["08_electrical", "Electrical"], ["09_calibration", "Finding the end stops"]];
+async function pageDocs(root, id) {
   const list = await api("/api/docs");
-  id = id || (list.docs[0]&&list.docs[0].id);
-  const nav = h("nav",{}, ...list.docs.map(d=>h("a",{href:"#docs/"+d.id, class:d.id===id?"active":"", style:d.id===id?"color:var(--ink)":""}, d.title)),
-    h("h3",{},"Diagrams"), ...["01_system_overview","02_software_map","03_control_cascade","04_state_machine","05_health_tree","06_root_cause","07_data_lineage","08_electrical","09_calibration"].map(n=>h("a",{href:"/diagrams/"+n+".svg", target:"_blank"}, n.slice(3).replace(/_/g," "))));
-  const body = h("div",{class:"md card"}, "loading…");
-  main.append(h("div",{class:"docs"}, h("div",{}, nav), body));
-  if (id) { const d = await api("/api/docs/"+id); body.innerHTML = d.html; for (const a of body.querySelectorAll("a[href$='.md']")) { const m=a.getAttribute("href").match(/([A-Z_]+)\.md/); if (m) a.setAttribute("href","#docs/"+m[1]); } }
+  id = id || (list.docs[0] && list.docs[0].id);
+  const nav = h("nav", { class: "doclist" }, ...list.docs.map(d => h("a", { href: "#docs/" + d.id, class: d.id === id ? "on" : "" }, d.title)),
+    h("div", { class: "sub" }, "Diagrams"), ...DIAGRAMS.map(([f, l]) => h("a", { href: "/diagrams/" + f + ".svg", target: "_blank" }, l)));
+  const body = h("article", { class: "md" }, "Loading…");
+  root.append(h("div", { class: "docs" }, nav, body));
+  if (id) {
+    const d = await api("/api/docs/" + id); body.innerHTML = d.html;
+    for (const a of body.querySelectorAll("a[href$='.md']")) { const m = a.getAttribute("href").match(/([A-Z_]+)\.md/); if (m) a.setAttribute("href", "#docs/" + m[1]); }
+  }
 }
 
-connect(); render();
+connect(); poll(); render();
 </script>
 </body>
 </html>

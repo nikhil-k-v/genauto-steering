@@ -5,24 +5,33 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Steering capture</title>
 <style>
-  :root { color-scheme: dark; --bg:#0f1218; --fg:#e6e9f0; --dim:#8a92a4; --ok:#4eca7a; --warn:#f0a44e; --bad:#e85555; --card:#181c26; }
+  @font-face { font-family: "Barlow"; font-weight: 400; src: url(/fonts/Barlow-Regular.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow"; font-weight: 600; src: url(/fonts/Barlow-SemiBold.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow Semi Condensed"; font-weight: 500; src: url(/fonts/BarlowSemiCondensed-Medium.woff2) format("woff2"); }
+  /* same system as the laptop app: colour means status, everything else is ink on paper */
+  :root { --paper:#f4f5f6; --surface:#fff; --ink:#1b2129; --muted:#68717c; --faint:#a3aab3; --rule:#d2d6db;
+          --ok:#2f8a57; --warn:#b5750e; --bad:#c2362d; }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font: 15px/1.4 -apple-system, system-ui, sans-serif; padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); }
-  h1 { font-size: 18px; margin: 4px 0 10px; letter-spacing: .5px; }
-  .card { background: var(--card); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
-  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  .grp { display:grid; grid-template-columns: repeat(6,1fr); gap:6px; }
-  .g { text-align:center; padding:8px 0; border-radius:8px; font-weight:700; background:#2a3040; }
-  .g.ok { background: var(--ok); color:#06200f; } .g.blk { background:#3a3f50; } .g.bad { background: var(--bad); }
-  .g.unk { background:#232838; color:var(--dim); }
-  .big { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .dim { color: var(--dim); font-size: 13px; }
-  button { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 12px 14px; background:#2d3448; color:var(--fg); }
-  button.primary { background:#3a6df0; } button.danger { background: var(--bad); } button:disabled { opacity:.4; }
-  video { width:100%; border-radius: 10px; background:#000; max-height: 38vh; object-fit: cover; }
-  .pill { padding:2px 8px; border-radius: 999px; background:#2a3040; font-size:12px; }
-  .pill.ok { background: var(--ok); color:#06200f; } .pill.bad { background: var(--bad); }
-  ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+  body { margin:0; background:var(--paper); color:var(--ink); font: 16px/1.45 "Barlow", -apple-system, system-ui, sans-serif;
+         font-variant-numeric: tabular-nums; padding: 14px 16px calc(18px + env(safe-area-inset-bottom)); }
+  h1 { font-size: 20px; font-weight: 600; margin: 4px 0 12px; }
+  .card { background: var(--surface); border-radius: 6px; padding: 14px 16px; margin-bottom: 10px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .grp { display:grid; grid-template-columns: 1fr 1fr; gap:4px 14px; }
+  .g { display:flex; align-items:center; gap:8px; }
+  .g i { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .g.ok i { background: var(--ok); } .g.blk i { background: var(--warn); } .g.bad i { background: var(--bad); }
+  .g.unk i { border: 1.6px solid var(--faint); }
+  .big { font-family: "Barlow Semi Condensed", "Barlow", sans-serif; font-size: 44px; font-weight: 500; line-height: 1.05; }
+  .dim { color: var(--muted); font-size: 14px; }
+  button { font: inherit; font-weight: 600; border: 1px solid var(--rule); border-radius: 6px; padding: 11px 14px; background: var(--surface); color: var(--ink); }
+  button.primary { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+  button.danger { background: var(--bad); border-color: var(--bad); color: var(--surface); }
+  button:disabled { color: var(--faint); background: var(--paper); }
+  video { width:100%; border-radius: 6px; background:#000; max-height: 38vh; object-fit: cover; }
+  .pill { font-size: 14px; color: var(--muted); }
+  .pill.ok { color: var(--ok); } .pill.bad { color: var(--bad); }
+  ul { margin: 8px 0 0; padding-left: 18px; font-size: 15px; } ul li b { font-weight: 600; }
 </style>
 </head>
 <body>
@@ -43,9 +52,7 @@
 
 <div class="card">
   <div class="row" style="justify-content:space-between">
-    <div><div class="dim">state</div><div id="cs" style="font-weight:700">—</div></div>
-    <div><div class="dim">position</div><div class="big" id="pos">—</div></div>
-    <div><div class="dim">setpoint</div><div id="sp">—</div></div>
+    <div><div id="cs" style="font-weight:600;font-size:20px">—</div><div class="big" id="pos">—</div><div class="dim">target <span id="sp">—</span></div></div>
   </div>
 </div>
 
@@ -62,7 +69,7 @@
   <div class="row">
     <button id="recstart">Start recording</button>
     <button id="recstop">Stop recording</button>
-    <button id="estop" class="danger">REST motor</button>
+    <button id="estop" class="danger">Stop motor</button>
   </div>
   <div class="dim" id="cmdres" style="margin-top:6px"></div>
 </div>
@@ -79,8 +86,8 @@ const serverNow = () => performance.timeOrigin + performance.now() + offset;   /
 
 function connect() {
   ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
-  ws.onopen = () => { $("ws").textContent = "online"; $("ws").className = "pill ok"; sync(); };
-  ws.onclose = () => { $("ws").textContent = "offline"; $("ws").className = "pill bad"; synced = false; setTimeout(connect, 1500); };
+  ws.onopen = () => { $("ws").textContent = "connected"; $("ws").className = "pill ok"; sync(); };
+  ws.onclose = () => { $("ws").textContent = "reconnecting"; $("ws").className = "pill bad"; synced = false; setTimeout(connect, 1500); };
   ws.onmessage = ev => handle(JSON.parse(ev.data));
 }
 function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
@@ -107,12 +114,15 @@ function handle(m) {
   } else if (m.type === "hello") { setRecording(m.recording); }
   else if (m.type === "recording") { setRecording(m); }
   else if (m.type === "telemetry") {
-    const names = ["REST", "HOLD", "FOLLOWING", "TEST", "FREE-SPIN", "CALIBRATING", "TRIPPED"];
-    $("cs").textContent = names[m.cs] || m.cs; $("pos").textContent = m.pos.toFixed(1) + "°"; $("sp").textContent = m.sp.toFixed(1) + "°";
+    const names = ["Resting", "Holding", "Following", "Testing", "Free-spin", "Calibrating", "Tripped"];
+    const sg = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1) + "°";
+    $("cs").textContent = names[m.cs] || m.cs; $("cs").style.color = m.cs === 6 ? "var(--bad)" : "";
+    $("pos").textContent = sg(m.pos); $("sp").textContent = sg(m.sp);
   } else if (m.type === "health") {
     const cls = {0: "unk", 1: "ok", 2: "blk", 3: "bad"};
-    $("groups").innerHTML = Object.entries(m.groups).map(([g, s]) => `<div class="g ${cls[s]}">${g}</div>`).join("");
-    $("bad").innerHTML = m.bad.filter(b => b.s !== 1).slice(0, 6).map(b => `<li><b>${b.id}</b> ${["?", "OK", "blocked", "FAIL"][b.s]} — ${b.r}</li>`).join("");
+    const title = {C: "Link", S: "Safety", M: "Motor", T: "Teensy", D: "Data"};
+    $("groups").innerHTML = ["C", "S", "M", "T", "D"].map(g => `<div class="g ${cls[m.groups[g]]}"><i></i>${title[g]}</div>`).join("");
+    $("bad").innerHTML = m.bad.filter(b => b.s !== 1).slice(0, 6).map(b => `<li><b>${b.id}</b> ${["unknown", "ok", "blocked", "failed"][b.s]}: ${b.r}</li>`).join("");
   } else if (m.type === "cmd_result") { $("cmdres").textContent = m.ok ? "ok" : ("refused: " + m.error); }
 }
 

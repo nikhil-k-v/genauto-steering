@@ -126,7 +126,12 @@ class Controller:
     def set_zero(self):        self._gate("set_zero");     self.link.send(P.command(P.CMD_SET_ZERO))
     def freespin_on(self):     self._gate("freespin_on");  self.link.send(P.command(P.CMD_FREESPIN_ON))
     def freespin_off(self):    self._gate("freespin_off"); self.link.send(P.command(P.CMD_FREESPIN_OFF))
-    def hold_here(self):       self._gate("hold_here");    self.link.send(P.command(P.CMD_HOLD_HERE))
+    def hold_here(self):
+        """Stop following (if streaming) and hold where the wheel is now."""
+        self._gate("hold_here")
+        if self.streamer.active:
+            self.streamer.stop()
+        self.link.send(P.command(P.CMD_HOLD_HERE))
     def calib_abort(self):     self._gate("calib_abort");  self.link.send(P.command(P.CMD_CALIB_ABORT))
     def capture_left(self):    self._gate("capture_limits"); self.link.send(P.command(P.CMD_CAPTURE_LEFT))
     def capture_right(self):   self._gate("capture_limits"); self.link.send(P.command(P.CMD_CAPTURE_RIGHT))

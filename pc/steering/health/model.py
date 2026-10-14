@@ -1,7 +1,7 @@
 """
 health/model.py - the health tree: every node, what it means, what it affects.
 
-This file IS the documentation of the status tiles.  docs/HEALTH_REFERENCE.md
+This file IS the documentation of the health checks.  docs/HEALTH_REFERENCE.md
 is generated from it (`python -m steering docs-health`), the UI tooltips come
 from it, and the log files reference node ids from it.  If you add a check
 anywhere, add a node here or it does not exist.
@@ -38,9 +38,9 @@ RANK = {HS_OK: 0, HS_UNKNOWN: 1, HS_BLOCKED: 2, HS_FAIL: 3}
 class GroupDef:
     letter: str
     name: str
-    short: str             # label on a tile
+    short: str             # short label
     question: str          # the question this group answers
-    component: str         # which system component the group lives on (system strip)
+    component: str         # which system component the group lives on (rail row)
 
 
 @dataclass(frozen=True)
@@ -107,7 +107,7 @@ NODES: List[NodeDef] = [
             ("enable", "freespin_on", "calibrate", "trajectory", "playback", "tests"), "fw", P.HN_SWITCH),
     NodeDef("S2", "trip", "S", "No trip latched",
             "No safety trip is latched.",
-            "A trip is latched (see the trip name and explanation in the Health tab). The motor is in REST until cleared.",
+            "A trip is latched (the rail shows the trip name and explanation). The motor is in REST until cleared.",
             "Fix the cause, then Clear trip. Trips are listed in docs/SAFETY.md.",
             ("enable", "freespin_on", "calibrate", "trajectory", "playback", "tests"), "fw", P.HN_TRIP),
 
@@ -115,12 +115,12 @@ NODES: List[NodeDef] = [
     NodeDef("T1", "isr", "T", "Control loop timing",
             "The 1 kHz tick runs on time with no overruns.",
             "Overruns or low loop rate: the ISR is being starved (I2C stall, long main-loop work) or is too expensive.",
-            "Check DISPLAY_HZ / OLED wiring; report isr_overruns from the Health tab.",
+            "Check DISPLAY_HZ / OLED wiring; report isr_overruns from the Health page counters.",
             ("enable", "trajectory", "playback", "tests"), "fw", P.HN_ISR),
     NodeDef("T2", "ctrl_ready", "T", "Zeroed + limits",
             "Zero has been set and end-stop limits are valid: absolute positions mean something.",
             "Not zeroed and/or limits unknown. Trajectories, playback and tests are refused because 0 deg is meaningless.",
-            "Run Calibrate (auto) or capture L/R stops and Go-Center-Zero in the Calibration tab.",
+            "Calibrate page: Find end stops and zero, or set them by hand.",
             ("trajectory", "playback", "tests", "slider"), "fw", P.HN_CTRL_READY),
     NodeDef("T3", "calib", "T", "Calibration",
             "No calibration running and the last one did not fail.",
@@ -186,7 +186,7 @@ NODES: List[NodeDef] = [
     NodeDef("D5", "ui_loop", "D", "UI responsiveness",
             "The UI frame loop is keeping up (< 250 ms per frame).",
             "UI frames are slow or stalled: a callback is blocking. If it stalls > 1 s the firmware treats the PC as dead.",
-            "Look for the last exception in the Health tab log; never block in callbacks.",
+            "Look for the last traceback in data/logs/app.log; never block in callbacks.",
             ("trajectory", "playback", "tests"), "pc"),
 ]
 

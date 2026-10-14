@@ -55,6 +55,7 @@ def main():
         if shots:
             frames(2)
             dpg.output_frame_buffer(str(shots / f"{name}.png"))
+            frames(2)                     # the buffer is written on a later frame
             print("saved", shots / f"{name}.png")
 
     def until(cond, timeout=30, what=""):
@@ -68,7 +69,7 @@ def main():
     c = app.controller
     until(lambda: c.live.tree.nodes["C5"].state == P.HS_OK, what="link up")
     frames(30, 0.02)
-    shot("01_live_rest")
+    shot("01_drive_resting")
     c.enable()
     until(lambda: c.live.ctrl_state == P.CS_HOLD, what="HOLD")
     c.calibrate()
@@ -76,15 +77,15 @@ def main():
     frames(20, 0.03)
     shot("02_calibrating")
     until(lambda: c.live.health_fw and c.live.health_fw.calib_stage == P.CAL_DONE and not app.recorder.active, 60, "calibration")
-    dpg.set_value("tabs", "tab_live")
-    ui._set_slider(25.0)
+    dpg.set_value("tabs", "tab_drive")
+    ui.panels["drive"].set_slider(25.0)
     frames(60, 0.03)
-    shot("03_live_hold")
-    dpg.set_value("tabs", "tab_traj")
+    shot("03_drive_holding")
+    dpg.set_value("tabs", "tab_drive")
     frames(5)
     c.run_generator("sine", amplitude_deg=25, freq_hz=0.8, duration_s=2.0)
     frames(30, 0.03)
-    shot("04_trajectory_streaming")
+    shot("04_drive_following")
     until(lambda: not c.streamer.active and not app.recorder.active, 30, "traj done")
     dpg.set_value("tabs", "tab_tune")
     c.run_test(P.TEST_RELAY, 0, 3.0, 1.0)
@@ -104,26 +105,38 @@ def main():
     until(lambda: not c.streamer.active and not app.recorder.active, 30, "playback done")
     ui.panels["play"]._rebuild_list()
     frames(5)
-    shot("07_library_with_playback")
+    shot("07_library")
     # faults: switch open -> trip
     t.sim.f.switch_armed = False
     until(lambda: c.live.ctrl_state == P.CS_TRIPPED, 10, "trip")
     frames(10)
     dpg.set_value("tabs", "tab_health")
-    ui.panels["health"].select_group("B")
+    ui.panels["health"].select("S1")
     frames(10)
     shot("08_health_tripped")
     # literal connection lines: pretend the Enable button is hovered while S1/S2 block it
-    dpg.set_value("tabs", "tab_live")
-    enable_btn = next(i for i, a in ui.gate.bindings.items() if a == "enable")
-    ui.overlay.force = (enable_btn, "enable")
+    dpg.set_value("tabs", "tab_drive")
+    rec_btn = ui.panels["drive"].tags["rec"]
+    ui.overlay.force = (ui.rail.tags["clear"], "clear_trip")
+    frames(5)
+    ui.overlay.force = (rec_btn, ui.gate.bindings[rec_btn])
+    frames(3)
+    shot("12_lines_record")
+    t.sim.f.switch_armed = True
+    frames(20, 0.03)
+    c.clear_trip()
+    until(lambda: c.live.ctrl_state == P.CS_REST, 10, "rest")
+    t.sim.f.switch_armed = False
+    frames(20, 0.03)
+    ui.overlay.force = (ui.rail.tags["hold"], "enable")
     frames(5)
     shot("11_connection_lines")
     ui.overlay.force = None
     t.sim.f.switch_armed = True
     t.sim.f.motor_power = False
     frames(40, 0.03)
-    ui.panels["health"].select_group("A")
+    ui.panels["health"].select("M4")
+    dpg.set_value("tabs", "tab_health")
     frames(5)
     shot("09_health_motor_off")
     dpg.set_value("tabs", "tab_settings")

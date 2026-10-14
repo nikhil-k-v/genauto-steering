@@ -23,20 +23,20 @@ data/
           imu.csv                     phone IMU samples, t_rel_s relative to the recording (optional)
 ```
 
-Pick the collection in the left panel (`+` creates one from the name box). The date folder is automatic.
+Pick the collection under **Record** on the Drive page (**New collection** creates one). The date folder is automatic.
 
 ## Kinds and naming
 
 | kind | made by | name |
 |---|---|---|
-| `manual` | Record button in any state | what you typed |
-| `freespin` | Record while in free-spin (hand motion), or Trajectory → "Free-spin + Record" | what you typed |
-| `trajectory` | a synthetic generator | generator name (`sine`, `chirp`…) |
-| `playback` | Play back on motor | **`<parent name>_pbNN`**, `parent_uid` = the recording played; NN counts that parent's playbacks |
-| `test_step`, `test_relay` | Tuning tab | `step`, `relay` |
-| `calibration` | Auto-calibrate | `autocal` |
+| `manual` | **Record** on Drive, in any state | what you typed |
+| `freespin` | **Record** while in free-spin (a hand motion) | what you typed |
+| `trajectory` | Tune → Test waveforms | waveform name (`sine`, `chirp`…) |
+| `playback` | Library → **Play on motor** | **`<parent name>_pbNN`**, `parent_uid` = the recording played; NN counts that parent's playbacks |
+| `test_step`, `test_relay` | Tune → step / relay test | `step`, `relay` |
+| `calibration` | Calibrate → Find end stops and zero | `autocal` |
 
-Playbacks are children: the Library shows them nested under their parent, the parent's
+Playbacks are children: Library shows them indented under their parent, the parent's
 `playback_count` sorts the "playbacks" view, and `meta.json` of both sides carries the link.
 
 ## `data.csv` columns
@@ -66,12 +66,12 @@ err_p95_abs_deg vel_max_abs_deg_s current_max_abs_A current_rms_A pos_min/max/ra
 tracking_score_pct` (100 % at zero error, 0 % when RMS error reaches 10 % of the setpoint range).
 
 Step tests add `step_amp_deg step_rise_s (10–90 %) step_overshoot_pct step_settle_s (2 %) step_ss_err_deg`.
-Relay tests add `relay_Tu_s relay_amp_deg relay_h_Nm relay_Ku_Nm_per_rad relay_periods`; the Tuning tab
+Relay tests add `relay_Tu_s relay_amp_deg relay_h_Nm relay_Ku_Nm_per_rad relay_periods`; the Tune page
 turns Ku/Tu into Ziegler–Nichols / Pessen / steering-conservative proposals.
 
 ## Editing
 
-* **Trim** (Playback tab): permanently drops samples after the chosen time, recomputes metrics.
+* **Trim the end** (Library): permanently drops samples after the chosen time, recomputes results.
 * Pin, rename, notes, tags, soft-delete (hidden in the catalog, files kept).
 * `python -m steering reindex` rebuilds the catalog from every `meta.json` (e.g. after copying
   folders between machines).

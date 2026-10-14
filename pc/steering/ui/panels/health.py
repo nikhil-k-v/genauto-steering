@@ -1,7 +1,17 @@
-"""Health tab - every node as a TILE (small title above, big coloured box with
-the state word and the live reason inside).  Hover a tile: it explains itself
-and draws lines to every visible control it gates.  Grouped by letter:
-M motor, S safety, T teensy, C comms, D data."""
+"""Health - every check, grouped by what kind of thing it is about.
+
+    Motor and CAN                         │  M4  Motor replies
+    Can the Teensy talk to a sane motor?  │  failed: no reply for 500 ms
+      ● M1  CAN controller     ok         │
+      ● M2  CAN transmit       ok         │  OK means      ...
+      ● M4  Motor replies      no reply   │  If not        ...
+    ...                                   │  Fix           ...
+                                          │  Blocks        Hold, Free-spin, ...
+                                          │
+                                          │  Counters (mono)   Recent changes (mono)
+
+Hover a check: lines to the controls it gates.  Click: details on the right.
+"""
 from __future__ import annotations
 
 import time
@@ -11,10 +21,12 @@ import dearpygui.dearpygui as dpg
 
 from ... import protocol as P
 from ...health.gating import ACTIONS, affected_actions
-from ...health.model import GROUPS, GROUP_NODES, NODES, STATE_NAMES
+from ...health.model import GROUPS, GROUP_NODES, NODES, NODE_BY_ID
 from .. import theme as T
+from ..safe import safe
 
-TILE_W, TILE_H = 196, 74
+DETAIL_W = 420
+GROUP_TITLE = {"M": "Motor and CAN", "S": "Safety", "T": "Teensy", "C": "Laptop to Teensy link", "D": "Data and services"}
 
 
 class HealthPanel:
@@ -23,104 +35,125 @@ class HealthPanel:
         self.app = ui.app
         self.c = ui.app.controller
         self.tags = {}
-        self.tiles = {}            # node id -> child_window item (for the overlay)
-        self._tile_parts = {}      # node id -> (state_text, reason_text)
-        self._themes = {}
+        self.rows = {}             # node id -> selectable (for the overlay)
+        self._dots = {}
+        self._reason = {}
         self.log = deque(maxlen=200)
         self.app.bus.subscribe("health_transition", lambda ch: self.log.appendleft((time.strftime("%H:%M:%S"), ch)))
-        self._group = "M"
-
-    def _tile_theme(self, state: int):
-        if state not in self._themes:
-            col = T.STATE_COLOR[state]
-            with dpg.theme() as t:
-                with dpg.theme_component(dpg.mvChildWindow):
-                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, col)
-                    dpg.add_theme_color(dpg.mvThemeCol_Border, col)
-                    dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, 8)
-            self._themes[state] = t
-        return self._themes[state]
+        self.sel = "M1"
 
     def build(self):
-        head = dpg.add_text("Each tile is one check. Colour = state. Hover a tile to see what it means, how to fix it, and lines to the controls it gates.", color=T.DIM, wrap=1200)
-        T.bind_font(head, "small")
-        for g, gd in GROUPS.items():
-            dpg.add_spacer(height=4)
-            with dpg.group(horizontal=True):
-                t = dpg.add_text(f"{g}  {gd.name.upper()}", color=T.TEXT)
-                T.bind_font(t, "head")
-                q = dpg.add_text(f"  {gd.question}", color=T.DIM)
-                T.bind_font(q, "small")
-            with dpg.group(horizontal=True):
-                for n in GROUP_NODES[g]:
-                    with dpg.group():
-                        title = dpg.add_text(f"{n.id}  {n.name}", color=T.DIM)
-                        T.bind_font(title, "small")
-                        with dpg.child_window(width=TILE_W, height=TILE_H, border=True, no_scrollbar=True) as tile:
-                            st = dpg.add_text("UNKNOWN", color=T.INK)
-                            T.bind_font(st, "tile")
-                            rs = dpg.add_text("", color=T.INK, wrap=TILE_W - 16)
-                            T.bind_font(rs, "mono_s")
-                        self.tiles[n.id] = tile
-                        self._tile_parts[n.id] = (st, rs)
-                        with dpg.tooltip(tile):
-                            acts = affected_actions(n.id) or list(n.affects)
-                            blocks = ", ".join(ACTIONS[a][0] if a in ACTIONS else a for a in acts) or "nothing directly"
-                            tt = dpg.add_text(f"{n.id} {n.name}  ({'Teensy decides' if n.source == 'fw' else 'PC decides'})", color=T.TEXT)
-                            T.bind_font(tt, "head")
-                            dpg.add_text(f"OK means: {n.ok_means}", wrap=460)
-                            dpg.add_text(f"When not OK: {n.bad_means}", wrap=460, color=T.WARN)
-                            dpg.add_text(f"Fix: {n.fix}", wrap=460, color=T.OK)
-                            dpg.add_text(f"Gates: {blocks}", wrap=460, color=T.DIM)
-        dpg.add_spacer(height=8)
-        with dpg.group(horizontal=True):
-            with dpg.child_window(width=600, height=190, border=True) as cw:
-                dpg.bind_item_theme(cw, T.theme("readout"))
-                T.section("Firmware counters")
-                self.tags["fw"] = T.mono_text("", wrap=580)
-                T.section("Link counters")
-                self.tags["link"] = T.mono_text("", wrap=580)
-            with dpg.child_window(width=-1, height=190, border=True) as cw2:
-                dpg.bind_item_theme(cw2, T.theme("readout"))
-                T.section("Transitions (also data/logs/health-*.jsonl)")
-                self.tags["log"] = [T.mono_text("", wrap=0) for _ in range(8)]
-                for l in self.tags["log"]:
-                    T.bind_font(l, "mono_s")
+        with dpg.group(horizontal=True, horizontal_spacing=28):
+            with dpg.child_window(tag="hl_list", border=False, width=-DETAIL_W - 28) as lw:
+                dpg.bind_item_theme(lw, T.theme("bare"))
+                for g in GROUPS:
+                    t = dpg.add_text(f"{GROUP_TITLE[g]}")
+                    T.bind_font(t, "head")
+                    T.label(GROUPS[g].question)
+                    T.gap(2)
+                    for n in GROUP_NODES[g]:
+                        with dpg.group(horizontal=True, horizontal_spacing=8):
+                            d = dpg.add_drawlist(width=14, height=30)
+                            self._dots[n.id] = d
+                            s = dpg.add_selectable(label=f"{n.id}   {n.name}", width=230, callback=safe(self._click), user_data=n.id)
+                            dpg.bind_item_theme(s, T.theme("row"))
+                            self.rows[n.id] = s
+                            self._reason[n.id] = T.label("")
+                    T.gap(14)
+            with dpg.child_window(tag="hl_detail", width=DETAIL_W, border=False) as dw:
+                dpg.bind_item_theme(dw, T.theme("bare"))
+                self.tags["d_title"] = dpg.add_text("")
+                T.bind_font(self.tags["d_title"], "head")
+                self.tags["d_state"] = dpg.add_text("", wrap=DETAIL_W - 10)
+                self.tags["d_src"] = T.label("")
+                T.gap(8)
+                with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit, borders_innerH=False):
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=78)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=DETAIL_W - 96)
+                    for key, lab in (("ok", "OK means"), ("bad", "If not"), ("fix", "Fix"), ("gates", "Blocks")):
+                        with dpg.table_row():
+                            T.label(lab)
+                            self.tags[f"d_{key}"] = dpg.add_text("", wrap=DETAIL_W - 100)
+                T.gap(16)
+                t = dpg.add_text("Counters"); T.bind_font(t, "label")
+                self.tags["fw"] = T.mono_text("", T.MUTED, small=True)
+                self.tags["link"] = T.mono_text("", T.MUTED, small=True)
+                T.gap(12)
+                t = dpg.add_text("Recent changes"); T.bind_font(t, "label")
+                T.label("Also kept in data/logs/health-*.jsonl and in each recording.")
+                self.tags["log"] = [T.mono_text("", T.MUTED, small=True) for _ in range(10)]
+                T.gap(12)
+                t = dpg.add_text("Events"); T.bind_font(t, "label")
+                self.tags["events"] = [T.mono_text("", T.MUTED, small=True, wrap=DETAIL_W - 10) for _ in range(8)]
 
-    def select_group(self, g):
-        self._group = g
+    def _click(self, sender, app_data, nid):
+        self.select(nid)
+
+    def select(self, nid):
+        if nid in NODE_BY_ID:
+            self.sel = nid
+
+    def select_group(self, g):                 # older call sites
+        nodes = GROUP_NODES.get(g)
+        if nodes:
+            self.sel = nodes[0].id
 
     def on_resize(self, w, h):
-        tw = max(140, min(TILE_W, (w - 40) // 6 - 8))
-        for nid, tile in self.tiles.items():
-            dpg.configure_item(tile, width=tw)
-            dpg.configure_item(self._tile_parts[nid][1], wrap=tw - 16)
+        dpg.configure_item("hl_list", height=h + 30)
+        dpg.configure_item("hl_detail", height=h + 30)
 
     def refresh(self):
         tree = self.c.live.tree
         for n in NODES:
             s = tree.nodes[n.id]
-            st, rs = self._tile_parts[n.id]
-            word = STATE_NAMES[s.state]
-            if n.optional and s.state == P.HS_BLOCKED:
-                word = "OFF"
-            dpg.set_value(st, word)
-            dpg.set_value(rs, s.reason[:60])
-            dpg.bind_item_theme(self.tiles[n.id], self._tile_theme(s.state))
-            ink = T.INK if s.state != P.HS_UNKNOWN else (200, 204, 214)
-            dpg.configure_item(st, color=ink); dpg.configure_item(rs, color=ink)
+            off = n.optional and s.state == P.HS_BLOCKED
+            col = T.STATE_COLOR[s.state]
+            d = self._dots[n.id]
+            dpg.delete_item(d, children_only=True)
+            if off or s.state == P.HS_UNKNOWN:
+                dpg.draw_circle((7, 15), 4.5, color=T.FAINT, thickness=1.6, parent=d)
+            else:
+                dpg.draw_circle((7, 15), 5, fill=col, color=col, parent=d)
+            word = "off" if off else (s.reason if s.state != P.HS_OK else (s.reason or "ok"))
+            dpg.set_value(self._reason[n.id], word[:80])
+            dpg.configure_item(self._reason[n.id], color=T.MUTED if s.state == P.HS_OK or off or s.state == P.HS_UNKNOWN else col)
+            dpg.set_value(self.rows[n.id], n.id == self.sel)
+
+        n = NODE_BY_ID[self.sel]
+        s = tree.nodes[n.id]
+        off = n.optional and s.state == P.HS_BLOCKED
+        dpg.set_value(self.tags["d_title"], f"{n.id}  {n.name}")
+        dpg.set_value(self.tags["d_state"], ("off" if off else T.STATE_WORD[s.state]) + (f": {s.reason}" if s.reason else ""))
+        dpg.configure_item(self.tags["d_state"], color=T.INK if s.state == P.HS_OK or off else T.STATE_COLOR[s.state])
+        dpg.set_value(self.tags["d_src"], ("Decided by the Teensy" if n.source == "fw" else "Decided by the laptop") +
+                      (". Optional: off is fine." if n.optional else "."))
+        dpg.set_value(self.tags["d_ok"], n.ok_means)
+        dpg.set_value(self.tags["d_bad"], n.bad_means)
+        dpg.set_value(self.tags["d_fix"], n.fix)
+        acts = affected_actions(n.id) or list(n.affects)
+        dpg.set_value(self.tags["d_gates"], ", ".join(ACTIONS[a][0] if a in ACTIONS else a for a in acts) or "nothing directly")
+
         fw = self.c.live.health_fw
         if fw:
-            dpg.set_value(self.tags["fw"], f"ctrl {P.CS_NAMES.get(fw.ctrl_state)} | trip {P.TRIP_NAMES.get(fw.trip_code)} | calib {P.CAL_NAMES.get(fw.calib_stage)}\n"
-                                           f"motor replies {fw.can_rx_motor_hz} Hz (last {fw.motor_age_ms} ms) | other ids {fw.can_rx_other_hz} Hz\n"
-                                           f"CAN {['active', 'warning', 'passive', 'BUS-OFF'][min(fw.can_bus_state, 3)]} TEC {fw.can_tec} REC {fw.can_rec}\n"
-                                           f"loop {fw.loop_hz} Hz | overruns {fw.isr_overruns} | PC packet age {fw.pc_hb_age_ms} ms")
+            dpg.set_value(self.tags["fw"], f"loop {fw.loop_hz} Hz   overruns {fw.isr_overruns}   PC packet age {fw.pc_hb_age_ms} ms\n"
+                                           f"motor replies {fw.can_rx_motor_hz} Hz (last {fw.motor_age_ms} ms)   other ids {fw.can_rx_other_hz} Hz\n"
+                                           f"CAN {['active', 'warning', 'passive', 'bus-off'][min(fw.can_bus_state, 3)]}   TEC {fw.can_tec}   REC {fw.can_rec}")
         ls = self.app.link.stats
-        dpg.set_value(self.tags["link"], f"{'open' if ls.port_open else 'closed'} {ls.port_error}\nbytes {ls.bytes_in} | frames {ls.frames_ok} ({ls.frames_hz:.0f}/s) | crc err {ls.crc_errors} | sync err {ls.sync_errors} | drops {ls.drops}\ntx {ls.tx_frames} (err {ls.tx_errors}) | unknown {ls.unknown_packets}")
+        dpg.set_value(self.tags["link"], f"port {'open' if ls.port_open else 'closed'} {ls.port_error}\n"
+                                         f"frames {ls.frames_ok} ({ls.frames_hz:.0f}/s)   crc {ls.crc_errors}   sync {ls.sync_errors}   drops {ls.drops}\n"
+                                         f"tx {ls.tx_frames} (err {ls.tx_errors})   unknown {ls.unknown_packets}")
         for i, line in enumerate(self.tags["log"]):
             if i < len(self.log):
                 ts, ch = self.log[i]
-                dpg.set_value(line, f"{ts}  {ch['node']} {ch['from']} -> {ch['to']}  {ch['reason']}")
-                dpg.configure_item(line, color=T.BAD if ch["to"] == "FAIL" else T.WARN if ch["to"] == "BLOCKED" else T.TEXT)
+                dpg.set_value(line, f"{ts}  {ch['node']:<3} {ch['from'].lower()} → {ch['to'].lower()}  {ch['reason']}"[:70])
+                dpg.configure_item(line, color=T.BAD if ch["to"] == "FAIL" else T.WARN if ch["to"] == "BLOCKED" else T.MUTED)
+            else:
+                dpg.set_value(line, "")
+        ev = self.ui.events
+        for i, line in enumerate(self.tags["events"]):
+            if i < len(ev):
+                ts, lvl, txt = ev[i]
+                dpg.set_value(line, f"{ts}  {txt}")
+                dpg.configure_item(line, color={"bad": T.BAD, "warn": T.WARN}.get(lvl, T.MUTED))
             else:
                 dpg.set_value(line, "")

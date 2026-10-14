@@ -1,8 +1,16 @@
-Bundled fonts (so the UI looks the same on every machine):
+# Fonts
 
-* DejaVu Sans / Sans Bold / Sans Mono / Sans Mono Bold — DejaVu Fonts License (free, derived from Bitstream Vera).
-* Poppins Medium / Bold — SIL Open Font License 1.1 (Indian Type Foundry).
+| file | family | licence | used for |
+|---|---|---|---|
+| `Barlow-Regular/Medium/SemiBold.ttf` | Barlow (Jeremy Tribby) | SIL OFL 1.1 | all UI text, buttons, headings |
+| `BarlowSemiCondensed-Medium.ttf` | Barlow Semi Condensed | SIL OFL 1.1 | the large wheel-angle numeral |
+| `IBMPlexMono-Regular/Medium.ttf` | IBM Plex Mono | SIL OFL 1.1 | file paths, event log, counters |
 
-Roles (ui/theme.py): DejaVu Sans = body text and labels; DejaVu Sans Mono = telemetry
-numbers, event/transition logs, file paths, counters; Poppins = section headers, tile
-titles and the big state/readout text.
+Source: github.com/google/fonts (`ofl/barlow`, `ofl/barlowsemicondensed`, `ofl/ibmplexmono`).
+
+The Barlow files here are modified: the OpenType `tnum` alternates are baked into the default
+character map so digits are fixed-width (live numbers don't jitter). Script:
+`scripts/bake_tnum.py`. The same fonts are shipped as woff2 in `web/fonts/` for the browser pages.
+
+Why Barlow: it descends from California highway signage — legible at a glance, compact, and from the
+vehicle world this tool lives in.
