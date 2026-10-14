@@ -37,9 +37,10 @@ class GateBinder:
     def bind(self, item, action: ActionRef, hint: Union[str, dict] = ""):
         self._refs[item] = action
         self.bindings[item] = action() if callable(action) else action
-        with dpg.tooltip(item):
-            self._tip_head[item] = dpg.add_text("", wrap=360)
-            self._tip_body[item] = dpg.add_text("", wrap=360, color=T.BAD)
+        with dpg.tooltip(item, delay=T.TIP_DELAY_S):
+            self._tip_head[item] = dpg.add_text("", wrap=380)
+            T.bind_font(self._tip_head[item], "small")
+            self._tip_body[item] = dpg.add_text("", wrap=380, color=T.BAD)
             T.bind_font(self._tip_body[item], "small")
         self._hint[item] = hint
 
@@ -63,6 +64,6 @@ class GateBinder:
                 hint = hint.get(action, "")
             dpg.set_value(self._tip_head[item], hint)
             dpg.configure_item(self._tip_head[item], show=bool(hint))
-            body = "" if r.ok else "Not available:\n" + "\n".join(f"  {x}" for x in r.reasons)
+            body = "" if r.ok else "Not available now:\n" + "\n".join(f"•  {x}" for x in r.reasons)
             dpg.set_value(self._tip_body[item], body)
             dpg.configure_item(self._tip_body[item], show=bool(body))

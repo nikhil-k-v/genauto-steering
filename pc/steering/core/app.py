@@ -92,9 +92,14 @@ class App:
         return port
 
     def start_server(self):
-        if self.server is None:
+        st = self.settings
+        if self.server is None or self.server.port != st.server_port or self.server.status["running"] is False:
             from ..server.hub import Hub
-            self.server = Hub(self, port=self.settings.server_port, allow_remote_control=self.settings.allow_remote_control)
+            if self.server is not None:
+                self.server.stop()
+            self.server = Hub(self, port=st.server_port, allow_remote_control=st.allow_remote_control,
+                              pages_url=st.pages_url, mdns_name=st.mdns_name)
+        self.server.allow_remote_control = st.allow_remote_control
         self.server.start()
 
     def stop_server(self):

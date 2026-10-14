@@ -20,6 +20,7 @@ from collections import deque
 import dearpygui.dearpygui as dpg
 
 from ... import protocol as P
+from ... import words as W
 from ...health.gating import ACTIONS, affected_actions
 from ...health.model import GROUPS, GROUP_NODES, NODES, NODE_BY_ID
 from .. import theme as T
@@ -56,6 +57,7 @@ class HealthPanel:
                             d = dpg.add_drawlist(width=14, height=30)
                             self._dots[n.id] = d
                             s = dpg.add_selectable(label=f"{n.id}   {n.name}", width=230, callback=safe(self._click), user_data=n.id)
+                            T.tip(s, f"{n.ok_means} Click for details; hover to see which controls it affects.")
                             dpg.bind_item_theme(s, T.theme("row"))
                             self.rows[n.id] = s
                             self._reason[n.id] = T.label("")
@@ -70,17 +72,19 @@ class HealthPanel:
                 with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit, borders_innerH=False):
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=78)
                     dpg.add_table_column(width_fixed=True, init_width_or_weight=DETAIL_W - 96)
-                    for key, lab in (("ok", "OK means"), ("bad", "If not"), ("fix", "Fix"), ("gates", "Blocks")):
+                    for key, lab in (("ok", "OK means"), ("bad", "If not"), ("fix", "Fix"), ("gates", "Disables")):
                         with dpg.table_row():
                             T.label(lab)
                             self.tags[f"d_{key}"] = dpg.add_text("", wrap=DETAIL_W - 100)
                 T.gap(16)
                 t = dpg.add_text("Counters"); T.bind_font(t, "label")
+                T.tip(t, "Raw numbers from the Teensy (first block) and from the laptop's USB link (second).")
                 self.tags["fw"] = T.mono_text("", T.MUTED, small=True)
                 self.tags["link"] = T.mono_text("", T.MUTED, small=True)
                 T.gap(12)
                 t = dpg.add_text("Recent changes"); T.bind_font(t, "label")
-                T.label("Also kept in data/logs/health-*.jsonl and in each recording.")
+                T.tip(t, "Every check that changed state. The full history is in data/logs/health-*.jsonl and in "
+                         "each recording's health.jsonl.")
                 self.tags["log"] = [T.mono_text("", T.MUTED, small=True) for _ in range(10)]
                 T.gap(12)
                 t = dpg.add_text("Events"); T.bind_font(t, "label")
@@ -110,11 +114,8 @@ class HealthPanel:
             col = T.STATE_COLOR[s.state]
             d = self._dots[n.id]
             dpg.delete_item(d, children_only=True)
-            if off or s.state == P.HS_UNKNOWN:
-                dpg.draw_circle((7, 15), 4.5, color=T.FAINT, thickness=1.6, parent=d)
-            else:
-                dpg.draw_circle((7, 15), 5, fill=col, color=col, parent=d)
-            word = "off" if off else (s.reason if s.state != P.HS_OK else (s.reason or "ok"))
+            T.status_mark(d, (7, 15), s.state, off)
+            word = "off" if off else (s.reason or W.VERDICT[s.state])
             dpg.set_value(self._reason[n.id], word[:80])
             dpg.configure_item(self._reason[n.id], color=T.MUTED if s.state == P.HS_OK or off or s.state == P.HS_UNKNOWN else col)
             dpg.set_value(self.rows[n.id], n.id == self.sel)
@@ -123,9 +124,11 @@ class HealthPanel:
         s = tree.nodes[n.id]
         off = n.optional and s.state == P.HS_BLOCKED
         dpg.set_value(self.tags["d_title"], f"{n.id}  {n.name}")
-        dpg.set_value(self.tags["d_state"], ("off" if off else T.STATE_WORD[s.state]) + (f": {s.reason}" if s.reason else ""))
+        verdict = "off (optional)" if off else W.VERDICT[s.state]
+        dpg.set_value(self.tags["d_state"], s.reason or verdict)
         dpg.configure_item(self.tags["d_state"], color=T.INK if s.state == P.HS_OK or off else T.STATE_COLOR[s.state])
-        dpg.set_value(self.tags["d_src"], ("Decided by the Teensy" if n.source == "fw" else "Decided by the laptop") +
+        dpg.set_value(self.tags["d_src"], f"{verdict.capitalize()}. " +
+                      ("Decided by the Teensy" if n.source == "fw" else "Decided by the laptop") +
                       (". Optional: off is fine." if n.optional else "."))
         dpg.set_value(self.tags["d_ok"], n.ok_means)
         dpg.set_value(self.tags["d_bad"], n.bad_means)
@@ -145,7 +148,9 @@ class HealthPanel:
         for i, line in enumerate(self.tags["log"]):
             if i < len(self.log):
                 ts, ch = self.log[i]
-                dpg.set_value(line, f"{ts}  {ch['node']:<3} {ch['from'].lower()} → {ch['to'].lower()}  {ch['reason']}"[:70])
+                to = {"OK": "ok", "BLOCKED": "not ready", "FAIL": "fault", "UNKNOWN": "no data"}.get(ch["to"], ch["to"].lower())
+                txt = f"{ts}  {ch['node']:<3} {to:<9} {ch['reason']}"
+                dpg.set_value(line, txt if len(txt) <= 60 else txt[:59] + "…")
                 dpg.configure_item(line, color=T.BAD if ch["to"] == "FAIL" else T.WARN if ch["to"] == "BLOCKED" else T.MUTED)
             else:
                 dpg.set_value(line, "")

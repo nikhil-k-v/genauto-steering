@@ -26,6 +26,12 @@ Design (docs/ARCHITECTURE.md#hub):
 
 Control from remote clients is limited to the `REMOTE_ACTIONS` allow-list
 unless `allow_remote_control` is set.
+
+Reaching it (server/net.py): http://<laptop-ip>:<port>/ on the Wi-Fi, http://<name>.local:<port>/
+when zeroconf is installed, and the GitHub Pages copy of the web UI, which talks to
+http://localhost:<port> directly (CORS below allows that origin) or hands other devices over
+to the laptop's address.  Browsers only: the WebSocket refuses pages from any other origin,
+so a random website open in the operator's browser cannot reach the hub.
 """
 from __future__ import annotations
 
@@ -38,6 +44,8 @@ from pathlib import Path
 from typing import Dict, Optional, Set
 
 from .. import protocol as P
+from .. import words as W
+from .net import Advertiser, hub_urls, pages_origin, qr_svg
 
 try:   # optional dependency; imported at module level so `from __future__ import annotations` resolves them
     from fastapi import FastAPI, Request, UploadFile, WebSocket, WebSocketDisconnect
@@ -66,10 +74,13 @@ DOC_PAGES = [("README", "Overview", REPO / "README.md"), ("ARCHITECTURE", "Archi
 
 
 class Hub:
-    def __init__(self, app, host: str = "0.0.0.0", port: int = 8765, allow_remote_control: bool = False):
+    def __init__(self, app, host: str = "0.0.0.0", port: int = 8765, allow_remote_control: bool = False,
+                 pages_url: str = "", mdns_name: str = ""):
         self.app = app
         self.host, self.port = host, port
         self.allow_remote_control = allow_remote_control
+        self.pages_url = pages_url
+        self.mdns = Advertiser(mdns_name, port) if mdns_name else None
         self.status = {"running": False, "clients": 0, "error": "", "url": ""}
         self.phone_status = {"connected": False, "offset_ms": None, "jitter_ms": None, "capturing": False}
         self._clients: Set = set()
@@ -94,7 +105,25 @@ class Hub:
     def stop(self):
         if self._server:
             self._server.should_exit = True
+        if self.mdns:
+            self.mdns.stop()
         self.status["running"] = False
+
+    def urls(self) -> dict:
+        return hub_urls(self.port, self.pages_url, self.mdns.name if self.mdns else "", bool(self.mdns and self.mdns.ok))
+
+    def origin_allowed(self, origin: Optional[str], host: Optional[str]) -> bool:
+        """Browser origins that may use the hub: its own pages, and the GitHub Pages front door."""
+        if not origin:                       # not a browser (ROS bridge, scripts, phones' native apps)
+            return True
+        from urllib.parse import urlsplit
+        o = urlsplit(origin)
+        if host and o.netloc == host:
+            return True
+        if o.hostname in ("localhost", "127.0.0.1") and o.port == self.port:
+            return True
+        po = pages_origin(self.pages_url)
+        return bool(po) and origin == po
 
     def _run(self):
         api = FastAPI(title="genauto-steering hub")
@@ -105,9 +134,40 @@ class Hub:
             log.error("websocket validation error: %s", exc.errors())
             await sock.close()
 
+        from fastapi.middleware.cors import CORSMiddleware
+        from fastapi.responses import Response
         from fastapi.staticfiles import StaticFiles
         from ..health.model import GROUPS, NODES
         from ..data.analysis import load_csv
+
+        # The GitHub Pages copy of these pages may call the hub on http://localhost (same laptop).
+        # Chrome also asks before a public https page talks to a private/loopback address (Private
+        # Network Access preflight); answer yes for that origin only.
+        po = pages_origin(hub.pages_url)
+        if po:
+            import inspect
+            pna = "allow_private_network" in inspect.signature(CORSMiddleware.__init__).parameters
+            api.add_middleware(CORSMiddleware, allow_origins=[po], allow_methods=["GET", "POST"],
+                               allow_headers=["content-type"], **({"allow_private_network": True} if pna else {}))
+            if not pna:                                  # older Starlette: add the header ourselves
+                @api.middleware("http")
+                async def private_network(request: Request, call_next):
+                    resp = await call_next(request)
+                    if request.headers.get("origin") == po and request.method == "OPTIONS":
+                        resp.headers["Access-Control-Allow-Private-Network"] = "true"
+                    return resp
+
+        @api.get("/api/info")
+        async def api_info():
+            return {"name": "Gen Auto steering hub", "port": hub.port, "urls": hub.urls(),
+                    "remote_control": hub.allow_remote_control, "mdns": bool(hub.mdns and hub.mdns.ok)}
+
+        @api.get("/api/qr.svg")
+        async def api_qr(text: str):
+            svg = qr_svg(text)
+            if svg is None:
+                return JSONResponse({"error": "install segno for QR codes"}, status_code=404)
+            return Response(svg, media_type="image/svg+xml")
 
         @api.get("/")
         async def index():
@@ -231,7 +291,14 @@ class Hub:
         @api.get("/status")
         async def status():
             t = hub.app.controller.live.telemetry
-            return {"ctrl_state": P.CS_NAMES.get(hub.app.controller.live.ctrl_state),
+            c = hub.app.controller
+            fw = c.live.health_fw
+            return {"ctrl_state": P.CS_NAMES.get(c.live.ctrl_state),
+                    "state_word": W.STREAM_STATE.get(c.stream_kind if c.streamer.active else "planner", W.STATE[P.CS_TRAJ])
+                    if c.live.ctrl_state == P.CS_TRAJ else W.STATE.get(c.live.ctrl_state, ""),
+                    "trip": W.trip_line(fw.trip_code, c.live.trip_text) + ". " + W.TRIP_WHY.get(fw.trip_code, "")
+                    if fw and fw.trip_code else "",
+                    "setpoint_source": c.setpoint_source(),
                     "position_deg": t.position_deg if t else None,
                     "health": hub.app.controller.live.tree.summary_line(),
                     "recording": hub.app.recorder.status, "clients": len(hub._clients),
@@ -259,6 +326,10 @@ class Hub:
 
         @api.websocket("/ws")
         async def ws(sock: WebSocket):
+            if not hub.origin_allowed(sock.headers.get("origin"), sock.headers.get("host")):
+                log.warning("refused websocket from %s", sock.headers.get("origin"))
+                await sock.close(code=1008)
+                return
             await sock.accept()
             cid = id(sock)
             hub._clients.add(sock)
@@ -327,14 +398,18 @@ class Hub:
             def on_telem(t):
                 hub._telemetry_n += 1
                 if hub._telemetry_n % 10 == 0:          # 20 Hz to phones
-                    push({"type": "telemetry", "cs": t.ctrl_state, "pos": round(t.position_deg, 2),
+                    push({"type": "telemetry", "cs": t.ctrl_state, "src": hub.app.controller.setpoint_source(),
+                          "pos": round(t.position_deg, 2),
                           "sp": round(t.setpoint_deg, 2), "vel": round(t.velocity_deg_s, 1),
                           "cur": round(t.current_A, 2)})
             unsub.append(hub.app.bus.subscribe("telemetry", on_telem))
             unsub.append(hub.app.bus.subscribe("recording", lambda s: push({"type": "recording", **hub._rec_msg()})))
             unsub.append(hub.app.bus.subscribe("health_transition", lambda ch: push({"type": "health_transition", **ch})))
-            unsub.append(hub.app.bus.subscribe("event", lambda e: push({"type": "event", "code": P.EV_NAMES.get(e.code),
-                                                                        "arg": e.arg, "text": e.text_str})))
+            def on_event(e):
+                said = W.event_text(e.code, e.arg, e.text_str)
+                push({"type": "event", "code": P.EV_NAMES.get(e.code), "arg": e.arg, "text": e.text_str,
+                      "say": said[0] if said else "", "level": said[1] if said else "info"})
+            unsub.append(hub.app.bus.subscribe("event", on_event))
             last_health = 0.0
             while hub.status["running"]:
                 try:
@@ -363,10 +438,12 @@ class Hub:
         async def _startup():
             hub.status["running"] = True
             asyncio.create_task(broadcaster())
+            if hub.mdns:
+                threading.Thread(target=hub.mdns.start, name="mdns", daemon=True).start()
 
         config = uvicorn.Config(api, host=self.host, port=self.port, log_level="warning")
         self._server = uvicorn.Server(config)
-        self.status["url"] = f"http://<laptop-ip>:{self.port}/"
+        self.status["url"] = (self.urls().get("lan") or [f"http://localhost:{self.port}/"])[0]
         self.status["pages"] = {"web": "/", "phone": "/phone"}
         try:
             self._server.run()
@@ -388,8 +465,8 @@ class Hub:
     @staticmethod
     def _markdown(text: str) -> str:
         # make relative doc links/images resolve inside the web UI
-        text = text.replace("](diagrams/", "](/diagrams/").replace("](docs/diagrams/", "](/diagrams/")
-        text = text.replace("](screenshots/", "](/screenshots/").replace("](docs/screenshots/", "](/screenshots/")
+        # relative, so the same HTML works under the hub ("/") and on GitHub Pages ("/genauto-steering/")
+        text = text.replace("](docs/diagrams/", "](diagrams/").replace("](docs/screenshots/", "](screenshots/")
         try:
             import markdown
             return markdown.markdown(text, extensions=["tables", "fenced_code", "toc"])

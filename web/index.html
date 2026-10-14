@@ -5,17 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gen Auto steering</title>
 <style>
-  @font-face { font-family: "Barlow"; font-weight: 400; src: url(/fonts/Barlow-Regular.woff2) format("woff2"); }
-  @font-face { font-family: "Barlow"; font-weight: 500; src: url(/fonts/Barlow-Medium.woff2) format("woff2"); }
-  @font-face { font-family: "Barlow"; font-weight: 600; src: url(/fonts/Barlow-SemiBold.woff2) format("woff2"); }
-  @font-face { font-family: "Barlow Semi Condensed"; font-weight: 500; src: url(/fonts/BarlowSemiCondensed-Medium.woff2) format("woff2"); }
-  @font-face { font-family: "IBM Plex Mono"; font-weight: 400; src: url(/fonts/IBMPlexMono-Regular.woff2) format("woff2"); }
+  /* relative URLs: the same file is served by the hub at / and by GitHub Pages at /genauto-steering/ */
+  @font-face { font-family: "Barlow"; font-weight: 400; src: url(fonts/Barlow-Regular.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow"; font-weight: 500; src: url(fonts/Barlow-Medium.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow"; font-weight: 600; src: url(fonts/Barlow-SemiBold.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow Semi Condensed"; font-weight: 500; src: url(fonts/BarlowSemiCondensed-Medium.woff2) format("woff2"); }
+  @font-face { font-family: "IBM Plex Mono"; font-weight: 400; src: url(fonts/IBMPlexMono-Regular.woff2) format("woff2"); }
+  @font-face { font-family: "DejaVu Sans"; font-weight: 400; src: url(fonts/DejaVuSans-plot.woff2) format("woff2"); }
 
-  /* Colour means status, nothing else. Everything else is ink on paper. */
+  /* Status colours are picked for red-green colour blindness (blue-green / amber / vermillion), and every
+     status mark also has a shape: circle ok, triangle not ready, square fault, ring no data.
+     Plot lines: solid = measured, dashed = setpoint, dotted = requested; colour = source.  */
   :root {
     --paper:#f4f5f6; --rail:#e6e9ec; --surface:#ffffff; --ink:#1b2129; --muted:#68717c; --faint:#a3aab3;
-    --rule:#d2d6db; --hover:#eceff2; --select:#dee7f5; --signal:#2b5fae;
-    --ok:#2f8a57; --warn:#b5750e; --bad:#c2362d;
+    --rule:#d2d6db; --hover:#eceff2; --select:#dee7f5; --signal:#0066aa; --well:#eceff3;
+    --ok:#008062; --warn:#c47e00; --bad:#cd3e16;
     --rail-w: 300px;
   }
   * { box-sizing: border-box; }
@@ -47,11 +51,23 @@
   .row .why { grid-column: 2 / 4; font-size: 15px; }
   .row .mark { width: 10px; height: 10px; border-radius: 50%; align-self: center; position: relative; z-index: 1; }
   .row.link .mark { width: 0; height: 0; }
-  .mark.s1 { background: var(--ok); } .mark.s2 { background: var(--warn); } .mark.s3 { background: var(--bad); }
+  .mark.s1 { background: var(--ok); }
+  .mark.s2 { background: var(--warn); border-radius: 0; clip-path: polygon(50% 0, 100% 100%, 0 100%); width: 12px; height: 11px; }
+  .mark.s3 { background: var(--bad); border-radius: 1px; }
   .mark.s0, .mark.off { background: transparent; border: 1.6px solid var(--faint); }
   .row .line { position: absolute; left: 4px; width: 2px; top: -2px; bottom: -2px; }
   .gap { height: 18px; }
   .event { margin-top: 22px; color: var(--muted); font-size: 12.5px; }
+  .connect { margin: 0 0 22px; }
+  .connect .row2 { display: flex; gap: 6px; }
+  .connect input { flex: 1; min-width: 0; }
+  .connect .note { font-size: 14px; color: var(--muted); margin-top: 6px; }
+  .connect .note.bad { color: var(--bad); }
+  .connect .quick button { font-size: 14px; padding: 3px 8px; margin: 6px 6px 0 0; }
+  .share { display: grid; grid-template-columns: minmax(0, 1fr) 170px; gap: 24px; align-items: start; }
+  .share dl { display: grid; grid-template-columns: 150px 1fr; gap: 6px 14px; margin: 0; }
+  .share dt { color: var(--muted); } .share dd { margin: 0; word-break: break-all; }
+  .share img { width: 170px; height: 170px; border: 1px solid var(--rule); border-radius: 6px; }
   .event.bad { color: var(--bad); } .event.warn { color: var(--warn); }
   .hub { margin-top: 10px; font-size: 14px; color: var(--muted); }
 
@@ -94,10 +110,11 @@
   tr.child td:first-child { padding-left: 30px; }
   td.n { font-weight: 500; } td.num { text-align: right; }
   .meta { color: var(--muted); max-width: 90ch; }
-  .plot { width: 100%; height: 220px; display: block; }
+  .plot { width: 100%; height: 240px; display: block; }
   .plot.small { height: 140px; }
-  .legend { font-size: 14px; color: var(--muted); display: flex; gap: 16px; margin-top: 6px; }
-  .legend i { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; }
+  .legend { font: 13px "DejaVu Sans", Verdana, sans-serif; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 6px 0 4px; }
+  .legend i { display: inline-block; width: 24px; height: 0; vertical-align: middle; margin-right: 6px; border-top: 2px solid; }
+  .legend i.dashed { border-top-style: dashed; } .legend i.dotted { border-top-style: dotted; }
   .results { display: grid; grid-template-columns: auto auto; gap: 4px 18px; }
   .results dt { color: var(--muted); } .results dd { margin: 0; }
   .log { max-height: 280px; overflow: auto; border: 1px solid var(--hover); border-radius: 4px; padding: 8px 10px; }
@@ -133,8 +150,16 @@
 <aside class="rail">
   <div class="brand">Gen Auto steering</div>
   <nav class="nav" id="nav">
-    <a href="#system">System</a><a href="#recordings">Recordings</a><a href="#docs">Docs</a><a href="/phone">Phone</a>
+    <a href="#system">System</a><a href="#recordings">Recordings</a><a href="#docs">Docs</a><a id="phoneLink" href="phone" title="Camera and IMU capture from a phone, synced to recordings">Phone</a>
   </nav>
+  <div class="connect" id="connect" hidden>
+    <label for="hubAddr" class="muted" style="font-size:14px">Laptop address</label>
+    <div class="row2"><input id="hubAddr" placeholder="192.168.1.42:8765" autocomplete="off" spellcheck="false"
+      title="The laptop running the steering app with its web hub on. Its address is on the app's Settings page.">
+      <button class="primary" id="hubGo" title="On this laptop: connect here. On another device: open the laptop's own copy of these pages over your Wi-Fi.">Connect</button></div>
+    <div class="quick"><button class="quiet" data-addr="localhost:8765" title="The steering app on this same computer">This computer</button><button class="quiet" data-addr="genauto.local:8765" title="The laptop's name on the Wi-Fi (needs zeroconf on the laptop; most phones and computers resolve .local names)">genauto.local</button></div>
+    <div class="note" id="hubNote">Docs work without a connection.</div>
+  </div>
   <div class="state" id="state">Connecting</div>
   <div class="state-line" id="stateLine">Waiting for the laptop app.</div>
   <div class="angle" id="angle">—</div>
@@ -146,6 +171,24 @@
 <main><div class="sheet" id="page"></div></main>
 
 <script>
+// ------------------------------------------------------------------ where am I?
+// "hub":   served by the laptop's hub (http://<laptop>:8765/) - everything is same-origin.
+// "pages": the GitHub Pages copy.  Docs are built in (api/*.json).  Live data needs the hub:
+//          on the same laptop we talk to http://localhost:<port> directly (browsers treat localhost
+//          as secure, the hub allows this origin); from any other device we hand over to the
+//          laptop's own copy, because an https page may not call a plain-http device on the Wi-Fi.
+const PAGES = location.hostname.endsWith(".github.io") || new URLSearchParams(location.search).has("pages");
+const HUB_KEY = "genauto.hub";
+let HUB = PAGES ? null : "";                       // base URL for API calls; null = no hub
+const isLoopback = a => /^(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(a);
+const normAddr = a => {
+  a = (a || "").trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  if (a && !/:\d+$/.test(a)) a += ":8765";
+  return a;
+};
+const store = { get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+                set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} } };
+
 // ------------------------------------------------------------------ helpers
 const $ = (s, el = document) => el.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => {
@@ -157,27 +200,40 @@ const h = (tag, attrs = {}, ...kids) => {
   for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(k));
   return e;
 };
-const api = async (p, o) => { const r = await fetch(p, o); if (!r.ok) throw new Error(`${p} answered ${r.status}`); return r.json(); };
+const api = async (p, o) => {
+  if (HUB === null) throw new Error("not connected to the laptop");
+  const r = await fetch(HUB + p, o); if (!r.ok) throw new Error(`${p} answered ${r.status}`); return r.json();
+};
+const staticJson = async p => { const r = await fetch(p); if (!r.ok) throw new Error(`${p} answered ${r.status}`); return r.json(); };
 const num = (x, d = 1) => (x == null || isNaN(x)) ? "—" : Number(x).toFixed(d).replace("-", "−");
 const signed = (x, d = 1) => (x == null || isNaN(x)) ? "—" : (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(d);
-const WORD = ["unknown", "ok", "blocked", "failed"];
-const CS_WORD = ["Resting", "Holding", "Following", "Testing", "Free-spin", "Calibrating", "Tripped"];
-const CS_LINE = ["Motor off. The wheel turns freely.", "Holding the commanded angle.", "Following a stream from the laptop.",
-  "Running a tuning test on the Teensy.", "No torque. Turn the wheel by hand.", "Finding the end stops.", "Tripped."];
+// same words as the laptop app (pc/steering/words.py)
+const VERDICT = ["no data", "ok", "not ready", "fault"];
+const CS_WORD = ["Motor off", "Position control", "Following setpoints", "Running a test", "Free-spin", "Calibrating", "Safety stop"];
 const RANK = [1, 0, 2, 3];
 const ROWS = [["laptop", "Laptop", ["D1", "D2", "D5"], "node"], ["usb", "USB", ["C1", "C2", "C3", "C4", "C5", "C6"], "link"],
   ["teensy", "Teensy", ["T1", "T2", "T3", "T4"], "node"], ["can", "CAN", ["M1", "M2", "M3"], "link"],
   ["motor", "Motor", ["M4", "M5", "M6"], "node"], null, ["safety", "Safety", ["S1", "S2"], "node"], ["hub", "Web hub", ["D3", "D4"], "node"]];
 const GROUP_TITLE = { C: "Laptop to Teensy link", S: "Safety", M: "Motor and CAN", T: "Teensy", D: "Data and services" };
-const COLORS = { ink: "#1b2129", signal: "#2b5fae", violet: "#7a5bb5", rust: "#b0683a", faint: "#a3aab3", rule: "#eceff2", muted: "#68717c" };
+// plot lines: colour = source / quantity, style = measured (solid) / setpoint (dashed) / requested (dotted)
+const COLORS = { position: "#0066aa", user: "#00704a", playback: "#62ba84", trajectory: "#62ba84", planner: "#d68000",
+  test: "#80858c", calib: "#80858c", torque: "#cd561a", error: "#5a6068", ink: "#1b2129", muted: "#68717c",
+  well: "#eceff3", grid: "#ffffff", rule: "#d2d6db" };
+const SOURCE_LABEL = { user: "Position control", playback: "playback", trajectory: "waveform", planner: "planner", test: "test", calib: "calibration" };
+const DASH = { solid: [], dashed: [8, 5], dotted: [2, 4] };
+const CS_SOURCE = { 1: "user", 3: "test", 5: "calib" };     // CS_HOLD, CS_TEST, CS_CALIB; CS_TRAJ depends on the kind
 
 // ------------------------------------------------------------------ live state (rail)
-const live = { t: null, health: null, status: null, events: [], ws: false, lastEvent: null };
+const live = { t: null, health: null, status: null, events: [], ws: false, lastEvent: null, nodes: {} };
+let sock = null;
 
 function connect() {
-  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  if (HUB === null) return;
+  const base = HUB ? HUB.replace(/^http/, "ws") : (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+  const ws = new WebSocket(base + "/ws");
+  sock = ws;
   ws.onopen = () => { live.ws = true; drawRail(); };
-  ws.onclose = () => { live.ws = false; drawRail(); setTimeout(connect, 1500); };
+  ws.onclose = () => { live.ws = false; drawRail(); if (sock === ws) setTimeout(connect, 1500); };
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if (m.type === "telemetry") { live.t = m; drawHead(); }
@@ -188,11 +244,13 @@ function connect() {
 }
 
 async function poll() {
-  try {
-    [live.health, live.status] = await Promise.all([api("/api/health"), api("/status")]);
-    drawRail();
-    if (route().page === "system") drawChecks();
-  } catch (e) { live.health = null; drawRail(); }
+  if (HUB !== null) {
+    try {
+      [live.health, live.status] = await Promise.all([api("/api/health"), api("/status")]);
+      drawRail();
+      if (route().page === "system") drawChecks();
+    } catch (e) { live.health = null; drawRail(); }
+  }
   setTimeout(poll, 1000);
 }
 
@@ -212,11 +270,11 @@ function rowValues() {
   const rec = s.recording || {};
   v.laptop = rec.active ? `recording ${rec.name || ""}` : "";
   v.usb = n.C4 && n.C4.state === 1 ? (s.telemetry_hz ? `${Math.round(s.telemetry_hz)} Hz` : "live") : (n.C1 && n.C1.state === 1 ? "silent" : "closed");
-  v.teensy = n.T1 && n.T1.reason ? n.T1.reason.split(",")[0] : "";
-  v.can = n.M3 ? n.M3.reason.replace(" on bus", "") : "";
+  v.teensy = n.T1 && n.T1.state === 1 ? n.T1.reason.split(",")[0] : "";
+  v.can = n.M3 && n.M3.state === 1 ? n.M3.reason.replace(" frames/s received", " Hz") : "";
   v.motor = t && n.M4 && n.M4.state === 1 ? `${signed(t.cur)} A` : (n.M4 && n.M4.state !== 1 ? "no reply" : "");
-  v.safety = n.S2 && n.S2.state === 3 ? "tripped" : (n.S1 && n.S1.state === 1 ? "armed" : n.S1 && n.S1.state === 2 ? "switch open" : "");
-  v.hub = `${s.clients ?? 1} client${(s.clients ?? 1) === 1 ? "" : "s"}`;
+  v.safety = n.S2 && n.S2.state === 3 ? "stopped" : (n.S1 && n.S1.state === 1 ? "armed" : n.S1 && n.S1.state === 2 ? "idle switch on" : "");
+  v.hub = `${s.clients ?? 1} browser${(s.clients ?? 1) === 1 ? "" : "s"}`;
   return v;
 }
 
@@ -224,60 +282,121 @@ function drawRail() {
   drawHead();
   const chain = $("#chain"); chain.innerHTML = "";
   if (!live.health) {
-    chain.append(h("div", { class: "muted" }, live.ws ? "Loading checks…" : "The hub is not answering. Is the laptop app running with the hub on?"));
+    chain.append(h("div", { class: "muted" }, HUB === null ? "" : live.ws ? "Loading checks…"
+      : "The laptop isn't answering. Is the steering app running with Settings › Web hub turned on?"));
     return;
   }
   live.nodes = Object.fromEntries(live.health.nodes.map(n => [n.id, n]));
   const vals = rowValues();
-  const rows = [];
   for (const r of ROWS) {
     if (!r) { chain.append(h("div", { class: "gap" })); continue; }
     const [key, label, nodes, kind] = r;
     const { st, wid, off } = rowState(nodes);
-    const el = h("div", { class: "row " + kind, title: nodes.map(id => `${id} ${live.nodes[id].name}: ${WORD[live.nodes[id].state]}`).join("\n") },
+    const el = h("div", { class: "row " + kind, title: nodes.map(id => `${id} ${live.nodes[id].name}: ${live.nodes[id].state === 1 ? "ok" : live.nodes[id].reason || VERDICT[live.nodes[id].state]}`).join("\n") },
       h("span", { class: "mark " + (off ? "off" : "s" + st) }),
       h("span", { class: "name" }, label), h("span", { class: "val" }, vals[key] || ""),
-      wid ? h("span", { class: "why", style: `color:var(--${st === 3 ? "bad" : st === 2 ? "warn" : "muted"})` }, `${wid}  ${live.nodes[wid].reason || live.nodes[wid].name}`) : null);
+      wid ? h("span", { class: "why", style: `color:var(--${st === 3 ? "bad" : st === 2 ? "warn" : "muted"})` },
+        live.nodes[wid].reason || live.nodes[wid].name, h("span", { class: "muted" }, `  ${wid}`)) : null);
     el.dataset.key = key; el.dataset.st = st; el.style.cursor = "pointer";
     el.onclick = () => { location.hash = "#system/" + (wid || nodes[0]); };
-    chain.append(el); rows.push(el);
+    chain.append(el);
   }
-  // the chain line: between laptop..teensy (USB) and teensy..motor (CAN), coloured by the link row
+  // the chain line between laptop..teensy (USB) and teensy..motor (CAN): coloured by the link, broken when not ok
   for (const [from, link, to] of [["laptop", "usb", "teensy"], ["teensy", "can", "motor"]]) {
     const st = Number(chain.querySelector(`[data-key=${link}]`).dataset.st);
     const col = ["var(--faint)", "var(--ok)", "var(--warn)", "var(--bad)"][st];
+    const bg = st === 1 ? col : `repeating-linear-gradient(${col} 0 ${st === 0 ? 3 : 7}px, transparent ${st === 0 ? 3 : 7}px ${st === 0 ? 7 : 12}px)`;
     for (const k of [from, link]) {
       const el = chain.querySelector(`[data-key=${k}]`);
-      const line = h("span", { class: "line", style: `background:${col};${k === from ? "top:50%;" : ""}${st === 0 ? "opacity:.6" : ""}` });
-      el.append(line);
+      el.append(h("span", { class: "line", style: `background:${bg};${k === from ? "top:50%;" : ""}` }));
     }
-    const end = chain.querySelector(`[data-key=${to}]`);
-    end.append(h("span", { class: "line", style: `background:${col};bottom:50%;top:-2px` }));
+    chain.querySelector(`[data-key=${to}]`).append(h("span", { class: "line", style: `background:${bg};bottom:50%;top:-2px` }));
   }
-  $("#hubLine").textContent = live.ws ? "" : "Live feed reconnecting…";
+  $("#hubLine").textContent = live.ws ? "" : HUB === null ? "" : "Live feed reconnecting…";
 }
 
 function drawHead() {
-  const t = live.t, n = live.nodes || {};
+  const t = live.t, s = live.status || {};
   const st = $("#state"), line = $("#stateLine");
-  if (!t) {
-    st.textContent = live.health ? "Waiting for the Teensy" : "Connecting"; st.className = "state";
-    line.textContent = live.health ? "No telemetry yet. See USB below." : "Waiting for the laptop app."; line.className = "state-line";
+  if (HUB === null) {
+    st.textContent = "Not connected"; st.className = "state";
+    line.textContent = "Enter the laptop's address above."; line.className = "state-line";
     $("#angle").textContent = "—"; $("#target").textContent = ""; return;
   }
-  st.textContent = CS_WORD[t.cs] || t.cs; st.className = "state" + (t.cs === 6 ? " bad" : "");
-  let txt = CS_LINE[t.cs] || "", cls = "";
-  if (t.cs === 6 && n.S2) { txt = n.S2.reason; cls = " bad"; }
-  line.textContent = txt; line.className = "state-line" + cls;
+  if (!t) {
+    st.textContent = live.health ? "Waiting for the Teensy" : "Connecting"; st.className = "state";
+    line.textContent = live.health ? "No telemetry yet: see the USB row below." : "Waiting for the laptop app."; line.className = "state-line";
+    $("#angle").textContent = "—"; $("#target").textContent = ""; return;
+  }
+  st.textContent = (t.cs === 2 && s.state_word) ? s.state_word : (CS_WORD[t.cs] || t.cs);
+  st.className = "state" + (t.cs === 6 ? " bad" : "");
+  line.textContent = t.cs === 6 ? (s.trip || "") : ""; line.className = "state-line" + (t.cs === 6 ? " bad" : "");
   $("#angle").textContent = `${signed(t.pos)}°`;
-  $("#target").textContent = [1, 2, 3, 5].includes(t.cs) ? `target ${signed(t.sp)}°` : "";
+  const src = t.src || "";
+  $("#target").textContent = src ? `setpoint ${signed(t.sp)}°` : "";
+  $("#target").style.color = src ? COLORS[src] : "";
 }
 
 function drawEvent() {
   const m = live.lastEvent, el = $("#event"); if (!m) return;
   const time = new Date().toTimeString().slice(0, 5);
-  if (m.type === "event") { el.textContent = `${time}  ${m.code} ${m.text || ""}`; el.className = "event mono" + (m.code === "trip" ? " bad" : ""); }
-  else { el.textContent = `${time}  ${m.node} ${m.from.toLowerCase()} → ${m.to.toLowerCase()}`; el.className = "event mono" + (m.to === "FAIL" ? " bad" : m.to === "BLOCKED" ? " warn" : ""); }
+  if (m.type === "event") {
+    if (!m.say) return;
+    el.textContent = `${time}  ${m.say}`; el.className = "event mono" + (m.level === "bad" ? " bad" : m.level === "warn" ? " warn" : "");
+  } else {
+    const to = { OK: "ok", BLOCKED: "not ready", FAIL: "fault", UNKNOWN: "no data" }[m.to] || m.to;
+    el.textContent = `${time}  ${m.node} ${to}${m.reason && m.to !== "OK" ? ": " + m.reason : ""}`;
+    el.className = "event mono" + (m.to === "FAIL" ? " bad" : m.to === "BLOCKED" ? " warn" : "");
+  }
+}
+
+// ------------------------------------------------------------------ connecting (GitHub Pages copy only)
+function setupConnect() {
+  const box = $("#connect");
+  if (!PAGES) { $("#phoneLink").setAttribute("href", "phone"); return; }
+  box.hidden = false;
+  const input = $("#hubAddr"), note = $("#hubNote");
+  const say = (txt, bad) => { note.textContent = ""; note.append(...[].concat(txt)); note.className = "note" + (bad ? " bad" : ""); };
+  const params = new URLSearchParams(location.search);
+  const fromLink = normAddr(params.get("hub"));
+  input.value = fromLink || store.get(HUB_KEY) || "";
+
+  async function go(addr, auto) {
+    addr = normAddr(addr);
+    if (!addr) { say("Type the address shown on the laptop's Settings page, e.g. 192.168.1.42:8765.", true); return; }
+    store.set(HUB_KEY, addr);
+    input.value = addr;
+    if (!isLoopback(addr)) {
+      // another machine: the browser won't let this https page call it, so open the laptop's own copy
+      say(`Opening http://${addr}/ …`);
+      location.href = `http://${addr}/${location.hash}`;
+      return;
+    }
+    say(`Connecting to http://${addr} …`);
+    try {
+      const ctl = new AbortController(); setTimeout(() => ctl.abort(), 2500);
+      const r = await fetch(`http://${addr}/api/info`, { signal: ctl.signal });
+      if (!r.ok) throw new Error(r.status);
+      const info = await r.json();
+      HUB = `http://${addr}`;
+      $("#phoneLink").setAttribute("href", `${HUB}/phone`);
+      say(["Connected to the app on this computer. ", h("a", { href: `${HUB}/${location.hash}` }, "Open its own copy")]);
+      connect(); render();
+    } catch (e) {
+      if (auto) { say("Docs work without a connection."); return; }
+      say([`No answer from http://${addr}. Is the steering app running with Settings › Web hub on? `,
+           h("a", { href: `http://${addr}/` }, "Try opening it directly")], true);
+    }
+  }
+  $("#hubGo").onclick = () => go(input.value);
+  input.onkeydown = e => { if (e.key === "Enter") go(input.value); };
+  for (const b of box.querySelectorAll(".quick button")) b.onclick = () => go(b.dataset.addr);
+  $("#phoneLink").onclick = e => {
+    const a = normAddr(input.value || store.get(HUB_KEY));
+    if (HUB === null) { e.preventDefault(); if (a && !isLoopback(a)) location.href = `http://${a}/phone`; else say("Connect to the laptop first: the phone page is served by it.", true); }
+  };
+  if (fromLink) go(fromLink, false);                          // a QR / bookmark link: go straight there
+  else if (input.value && isLoopback(input.value)) go(input.value, true);   // quietly retry this computer
 }
 
 // ------------------------------------------------------------------ router
@@ -288,10 +407,17 @@ async function render() {
   for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("on", a.getAttribute("href") === "#" + page);
   const root = $("#page"); root.innerHTML = "";
   try {
-    if (page === "system") await pageSystem(root, arg);
+    if (page === "docs") await pageDocs(root, arg);
+    else if (HUB === null) pageOffline(root, page);
+    else if (page === "system") await pageSystem(root, arg);
     else if (page === "recordings") await (arg ? pageRecording(root, arg) : pageRecordings(root));
-    else if (page === "docs") await pageDocs(root, arg);
   } catch (e) { root.append(h("p", { class: "muted" }, `Could not load this page: ${e.message}.`)); }
+}
+
+function pageOffline(root, page) {
+  root.append(h("h1", {}, page === "recordings" ? "Recordings" : "System"),
+    h("p", { class: "lead" }, "This page shows live data from the laptop, and nothing is connected yet. Enter the laptop's address on the left (it is on the app's Settings page, with a QR code for phones). The docs work offline."),
+    h("img", { class: "figure", src: "diagrams/01_system_overview.svg", alt: "System overview: laptop, Teensy, motor, switch, wheel, phone and planner, and the links between them." }));
 }
 
 // ------------------------------------------------------------------ system
@@ -299,15 +425,30 @@ let selected = "C1";
 async function pageSystem(root, arg) {
   if (arg) selected = arg;
   root.append(h("h1", {}, "System"),
-    h("p", { class: "lead" }, "The steering robot as the laptop app sees it. The laptop app is where you drive; this page is for checking the system, browsing recordings and reading the docs, from any device on the same network."),
-    h("img", { class: "figure", src: "/diagrams/01_system_overview.svg", alt: "System overview: laptop, Teensy, motor, switch, wheel, phone and planner, and the links between them." }));
+    h("p", { class: "lead" }, "The steering robot as the laptop app sees it. You drive from the laptop app; these pages are for checking the system, browsing recordings and reading the docs from any device on the same Wi-Fi."),
+    h("img", { class: "figure", src: "diagrams/01_system_overview.svg", alt: "System overview: laptop, Teensy, motor, switch, wheel, phone and planner, and the links between them." }));
   root.append(h("h2", {}, "Connectivity"),
-    h("p", { class: "lead" }, "Each hop from this page to the wheel, in order. The first one that isn't green is where to look."),
+    h("p", { class: "lead" }, "Each hop from this page to the wheel, in order. The first one that isn't ok is where to look."),
     h("div", { class: "conn", id: "conn" }));
   root.append(h("div", { class: "cols" },
     h("div", { class: "checks" }, h("h2", {}, "All checks"), h("div", { id: "checks" })),
     h("div", { class: "detail", id: "detail" })));
+  const share = h("div", { id: "share" });
+  root.append(h("h2", {}, "Open on another device"), share);
   drawChecks();
+  try {
+    const info = await api("/api/info"), u = info.urls;
+    const link = u.pages_link || (u.lan[0] || u.local);
+    const dl = h("dl", {},
+      h("dt", {}, "On the Wi-Fi"), h("dd", {}, ...(u.lan.length ? u.lan.map(x => h("div", {}, h("a", { href: x }, x))) : ["no network address"])),
+      u.mdns ? [h("dt", {}, "By name"), h("dd", {}, h("a", { href: u.mdns }, u.mdns))] : null,
+      u.pages_link ? [h("dt", {}, "Bookmark"), h("dd", {}, h("a", { href: u.pages_link }, u.pages_link),
+        h("div", { class: "muted", style: "font-size:14px" }, "Works from anywhere: it remembers this laptop and opens it when you are on its Wi-Fi."))] : null,
+      h("dt", {}, "On the laptop"), h("dd", {}, h("a", { href: u.local }, u.local)));
+    const qr = h("img", { src: `${HUB}/api/qr.svg?text=${encodeURIComponent(link)}`, alt: "QR code of the bookmark link", title: link });
+    qr.onerror = () => qr.remove();
+    share.append(h("div", { class: "share" }, dl, qr));
+  } catch (e) { share.append(h("p", { class: "muted" }, "Addresses unavailable.")); }
 }
 
 function dot(st, off) { return h("span", { class: "mark " + (off ? "off" : "s" + st), style: "display:inline-block;width:10px;height:10px;border-radius:50%" }); }
@@ -319,8 +460,8 @@ function drawChecks() {
   const hop = (label, st, reason) => conn.append(dot(st), h("span", {}, label), h("span", { class: "r" }, reason));
   hop("This page to the hub", 1, "you are reading it");
   hop("Hub to the laptop app", live.status ? 1 : 3, live.status ? "answering" : "no answer");
-  for (const [id, label] of [["C4", "Laptop to Teensy"], ["C5", "Teensy hears the laptop"], ["M4", "Teensy to motor"], ["S1", "Idle switch"], ["T2", "Zero and end stops"], ["D4", "Phone"]]) {
-    const x = n[id]; hop(label, x.optional && x.state === 2 ? 0 : x.state, `${id}  ${x.reason || WORD[x.state]}`);
+  for (const [id, label] of [["C4", "Laptop to Teensy"], ["C5", "Teensy hears the laptop"], ["M4", "Teensy to motor"], ["S1", "Idle switch"], ["T2", "0° and end stops"], ["D4", "Phone"]]) {
+    const x = n[id]; hop(label, x.optional && x.state === 2 ? 0 : x.state, `${x.reason || VERDICT[x.state]}  ${id}`);
   }
   const list = $("#checks"); list.innerHTML = "";
   for (const g of ["C", "S", "M", "T", "D"]) {
@@ -328,17 +469,17 @@ function drawChecks() {
     list.append(h("div", { class: "grp" }, GROUP_TITLE[g]), h("div", { class: "q" }, grp.question));
     for (const x of live.health.nodes.filter(x => x.group === g)) {
       const off = x.optional && x.state === 2;
-      list.append(h("div", { class: "check" + (x.id === selected ? " on" : ""), onclick: () => { selected = x.id; drawChecks(); } },
+      list.append(h("div", { class: "check" + (x.id === selected ? " on" : ""), title: x.ok, onclick: () => { selected = x.id; drawChecks(); } },
         dot(x.state, off), h("span", { class: "id" }, x.id), h("span", {}, x.name),
-        h("span", { class: "r s" + (off ? 0 : x.state) }, off ? "off" : (x.reason || WORD[x.state]))));
+        h("span", { class: "r s" + (off ? 0 : x.state) }, off ? "off" : (x.reason || VERDICT[x.state]))));
     }
   }
   const x = n[selected] || live.health.nodes[0];
   const off = x.optional && x.state === 2;
   const d = $("#detail"); d.innerHTML = "";
   d.append(h("h2", {}, `${x.id}  ${x.name}`),
-    h("div", { style: `color:var(--${off || x.state === 1 ? "ink" : x.state === 3 ? "bad" : x.state === 2 ? "warn" : "muted"})` }, (off ? "off" : WORD[x.state]) + (x.reason ? `: ${x.reason}` : "")),
-    h("div", { class: "muted" }, (x.source === "fw" ? "Decided by the Teensy." : "Decided by the laptop.") + (x.optional ? " Optional: off is fine." : "")),
+    h("div", { style: `color:var(--${off || x.state === 1 ? "ink" : x.state === 3 ? "bad" : x.state === 2 ? "warn" : "muted"})` }, off ? "off" : (x.reason || VERDICT[x.state])),
+    h("div", { class: "muted" }, `${off ? "Off (optional)" : VERDICT[x.state][0].toUpperCase() + VERDICT[x.state].slice(1)}. ` + (x.source === "fw" ? "Decided by the Teensy." : "Decided by the laptop.") + (x.optional ? " Optional: off is fine." : "")),
     h("dl", {}, h("dt", {}, "OK means"), h("dd", {}, x.ok), h("dt", {}, "If not"), h("dd", {}, x.bad), h("dt", {}, "Fix"), h("dd", {}, x.fix)));
 }
 
@@ -348,8 +489,8 @@ async function pageRecordings(root) {
   root.append(h("h1", {}, "Recordings"),
     h("p", { class: "lead" }, "Newest first. Playbacks sit under the recording they played. Open one to see its traces, results and events, or to pin, rename, tag or hide it."));
   const search = h("input", { placeholder: "Search names, notes, tags", oninput: () => load(), style: "min-width:260px" });
-  const sort = h("select", { onchange: () => load() }, ...[["recent", "Newest"], ["pinned", "Pinned first"], ["playbacks", "Most played"], ["name", "Name"]].map(([v, l]) => h("option", { value: v }, l)));
-  const coll = h("select", { onchange: () => load() }, h("option", { value: "" }, "All collections"));
+  const sort = h("select", { onchange: () => load(), title: "Order of the list" }, ...[["recent", "Newest"], ["pinned", "Pinned first"], ["playbacks", "Most played"], ["name", "Name"]].map(([v, l]) => h("option", { value: v }, l)));
+  const coll = h("select", { onchange: () => load(), title: "Show one collection only" }, h("option", { value: "" }, "All collections"));
   root.append(h("div", { class: "toolbar" }, search, sort, coll));
   const tbody = h("tbody");
   root.append(h("table", {}, h("thead", {}, h("tr", {}, ...["Name", "Kind", "When", "Length", "RMS error", "Health", "Tags"].map((x, i) => h("th", { class: i === 3 || i === 4 ? "num" : "" }, x)))), tbody));
@@ -376,8 +517,8 @@ const METRICS = [["tracking_score_pct", "Tracking score", v => `${num(v, 0)}%`],
   ["err_max_abs_deg", "Worst error", v => `${num(v, 2)}°`], ["vel_max_abs_deg_s", "Peak speed", v => `${num(v, 0)}°/s`],
   ["current_max_abs_A", "Peak current", v => `${num(v, 1)} A`], ["pos_range_deg", "Range used", v => `${num(v, 0)}°`],
   ["step_rise_s", "Rise time", v => `${num(v, 3)} s`], ["step_overshoot_pct", "Overshoot", v => `${num(v, 1)}%`],
-  ["step_settle_s", "Settling", v => `${num(v, 2)} s`], ["relay_Ku_Nm_per_rad", "Ku", v => `${num(v, 1)} Nm/rad`],
-  ["relay_Tu_s", "Tu", v => `${num(v, 3)} s`], ["max_gap_ms", "Longest gap", v => `${num(v, 0)} ms`]];
+  ["step_settle_s", "Settling", v => `${num(v, 2)} s`], ["relay_Ku_Nm_per_rad", "Ultimate gain", v => `${num(v, 1)} N·m/rad`],
+  ["relay_Tu_s", "Ultimate period", v => `${num(v, 3)} s`], ["max_gap_ms", "Longest gap", v => `${num(v, 0)} ms`]];
 
 async function pageRecording(root, uid) {
   const r = await api("/api/recordings/" + uid);
@@ -389,28 +530,36 @@ async function pageRecording(root, uid) {
   const save = body => api("/api/recordings/" + uid, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const name = h("input", { value: r.name, "aria-label": "Name" });
   root.append(h("div", { class: "toolbar" },
-    name, h("button", { onclick: () => save({ name: name.value }).then(render) }, "Rename"),
-    h("button", { class: "quiet", onclick: () => save({ pinned: !r.pinned }).then(render) }, r.pinned ? "Unpin" : "Pin"),
-    h("button", { class: "quiet danger", onclick: async () => { if (confirm("Hide this recording from the library? The files stay on disk.")) { await save({ delete: true }); location.hash = "#recordings"; } } }, "Hide")));
+    name, h("button", { onclick: () => save({ name: name.value }).then(render), title: "Rename the recording (the folder keeps its name)" }, "Rename"),
+    h("button", { class: "quiet", onclick: () => save({ pinned: !r.pinned }).then(render), title: "Pinned recordings sort first" }, r.pinned ? "Unpin" : "Pin"),
+    h("button", { class: "quiet danger", title: "Remove from the list; the files stay on disk", onclick: async () => { if (confirm("Hide this recording from the library? The files stay on disk.")) { await save({ delete: true }); location.hash = "#recordings"; } } }, "Hide")));
 
   const d = await api(`/api/recordings/${uid}/data`);
-  const t = d.columns.t_s;
+  const C = d.columns, t = C.t_s;
+  // the setpoint's source on each sample: from the controller state and the recording's kind
+  const trajSrc = ["playback", "trajectory"].includes(r.kind) ? r.kind : "planner";
+  const src = C.ctrl_state.map(c => c === 2 ? trajSrc : (CS_SOURCE[c] || ""));
+  const only = (ys, s, extend) => ys.map((v, i) => (src[i] === s || (extend && i > 0 && src[i - 1] === s)) ? v : null);
+  const present = Object.keys(SOURCE_LABEL).filter(s => src.includes(s));
+  const posSeries = [...present.map(s => [only(C.setpoint_deg, s, true), COLORS[s], "dashed", `setpoint · ${SOURCE_LABEL[s]}`]),
+    ...["playback", "trajectory", "planner"].filter(s => present.includes(s)).map(s => [only(C.target_deg, s, false), COLORS[s], "dotted", `requested · ${SOURCE_LABEL[s]}`]),
+    [C.position_deg, COLORS.position, "solid", "position (measured)"]];
   const specs = [
-    ["Position", "plot", [["setpoint_deg", COLORS.ink, "setpoint"], ["target_deg", COLORS.violet, "stream target"], ["position_deg", COLORS.signal, "position"]]],
-    ["Error", "plot small", [["error_deg", COLORS.rust, "error"]]],
-    ["Speed and current", "plot small", [["velocity_deg_s", COLORS.signal, "speed °/s"], ["current_A", COLORS.violet, "current A"]]]];
+    ["Wheel angle (°)", "plot", posSeries],
+    ["Error (°)", "plot small", [[C.error_deg, COLORS.error, "solid", "error = setpoint − position"]]],
+    ["Speed (°/s)", "plot small", [[C.velocity_deg_s, COLORS.position, "solid", "speed (measured)"]]],
+    ["Torque (N·m) and current (A)", "plot small", [[C.torque_cmd_Nm, COLORS.torque, "dashed", "torque command (N·m)"], [C.current_A, COLORS.torque, "solid", "motor current (A)"]]]];
   const canvases = [];
   for (const [title, cls, series] of specs) {
     const c = h("canvas", { class: cls, role: "img", "aria-label": `${title} over time` });
     canvases.push([c, series]);
-    root.append(h("h3", {}, title), c, h("div", { class: "legend" }, ...series.map(([, col, l]) => h("span", {}, h("i", { style: "background:" + col }), l))));
+    root.append(h("h3", {}, title), h("div", { class: "legend" }, ...series.map(([ys, col, sty, l]) => h("span", {}, h("i", { class: sty, style: "border-color:" + col }), l))), c);
   }
-  const cursor = h("input", { type: "range", min: 0, max: t.length - 1, value: 0, class: "cursor", "aria-label": "Cursor time" });
+  const cursor = h("input", { type: "range", min: 0, max: t.length - 1, value: 0, class: "cursor", "aria-label": "Cursor time", title: "Drag to read the values at a moment" });
   const readout = h("div", { class: "readout mono" });
   root.append(cursor, readout);
   let ci = 0;
-  const draw = () => { for (const [c, series] of canvases) plot(c, t, series.map(([k, col]) => [d.columns[k], col]), t[ci]); };
-  const C = d.columns;
+  const draw = () => { for (const [c, series] of canvases) plot(c, t, series, t[ci]); };
   cursor.oninput = () => { ci = Number(cursor.value);
     readout.textContent = `t ${num(t[ci], 2)} s   setpoint ${signed(C.setpoint_deg[ci])}°   position ${signed(C.position_deg[ci])}°   error ${signed(C.error_deg[ci])}°   speed ${signed(C.velocity_deg_s[ci], 0)}°/s   current ${signed(C.current_A[ci])} A`;
     draw(); };
@@ -429,57 +578,64 @@ async function pageRecording(root, uid) {
       h("p", { class: "mono muted" }, r.path)),
     h("div", {}, h("h2", {}, "Notes"), notes, tags, h("div", { style: "margin-top:8px" },
       h("button", { class: "primary", onclick: () => save({ notes: notes.value, tags: tags.value }).then(render) }, "Save notes")))));
-  if (r.video) root.append(h("h2", {}, "Phone video"), h("video", { src: "/api/recordings/" + uid + "/video", controls: "", style: "max-width:100%;border-radius:6px" }));
+  if (r.video) root.append(h("h2", {}, "Phone video"), h("video", { src: HUB + "/api/recordings/" + uid + "/video", controls: "", style: "max-width:100%;border-radius:6px" }));
   const log = h("div", { class: "log mono" }, "Loading…");
   root.append(h("h2", {}, "Events and health during the recording"), log);
   const e = await api(`/api/recordings/${uid}/events`); log.innerHTML = "";
   for (const x of e.events) log.append(h("div", { class: x.action && x.allowed === false ? "w" : x.code === "trip" ? "b" : "" },
-    `${num(x.t, 2).padStart(7)} s  ${x.action || x.code || ""}${x.allowed === false ? "  not allowed: " + (x.reasons || []).join("; ") : ""} ${x.text || ""}`));
+    `${num(x.t, 2).padStart(7)} s  ${x.action || x.code || ""}${x.allowed === false ? "  not available: " + (x.reasons || []).join("; ") : ""} ${x.text || ""}`));
   for (const x of e.health.filter(x => x.kind === "transition")) log.append(h("div", { class: x.to === "FAIL" ? "b" : x.to === "BLOCKED" ? "w" : "" },
-    `${num(x.t, 2).padStart(7)} s  ${x.node} ${x.from.toLowerCase()} → ${x.to.toLowerCase()}  ${x.reason}`));
+    `${num(x.t, 2).padStart(7)} s  ${x.node} ${({ OK: "ok", BLOCKED: "not ready", FAIL: "fault", UNKNOWN: "no data" })[x.to] || x.to}  ${x.reason}`));
   if (!log.children.length) log.textContent = "Nothing happened besides the recording itself.";
 }
 
-// small canvas plotter: no dependencies, works offline at the track
+// small canvas plotter: no dependencies, works offline at the track.  Inset well, white grid, DejaVu Sans,
+// line style per series (solid measured / dashed setpoint / dotted requested).
 function plot(canvas, t, series, cursorT) {
   const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
   canvas.width = W * dpr; canvas.height = H * dpr;
   const ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H);
-  const L = 46, R = 24, T = 6, B = 22;
+  const L = 50, R = 12, T = 6, B = 22;
   const vals = series.flatMap(([ys]) => ys.filter(v => v != null)); if (!vals.length) return;
   let lo = Math.min(...vals), hi = Math.max(...vals); if (hi - lo < 1e-6) { hi += 1; lo -= 1; }
   const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
   const t0 = t[0], t1 = t[t.length - 1] || 1;
   const X = v => L + (v - t0) / (t1 - t0) * (W - L - R), Y = v => T + (hi - v) / (hi - lo) * (H - T - B);
-  ctx.font = "12px Barlow, sans-serif"; ctx.fillStyle = COLORS.muted; ctx.strokeStyle = COLORS.rule; ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) { const v = lo + (hi - lo) * i / 4, y = Y(v); ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(W - R, y); ctx.stroke(); ctx.fillText(v.toFixed(Math.abs(hi - lo) < 10 ? 1 : 0).replace("-", "−"), 4, y + 4); }
-  for (let i = 0; i <= 6; i++) { const v = t0 + (t1 - t0) * i / 6; ctx.fillText(v.toFixed(1) + " s", X(v) - 12, H - 5); }
-  for (const [ys, col] of series) {
-    ctx.strokeStyle = col; ctx.lineWidth = col === COLORS.ink ? 1.2 : 1.8; ctx.beginPath(); let pen = false;
+  ctx.fillStyle = COLORS.well; ctx.fillRect(L, T, W - L - R, H - T - B);
+  ctx.strokeStyle = COLORS.rule; ctx.lineWidth = 1; ctx.strokeRect(L + 0.5, T + 0.5, W - L - R - 1, H - T - B - 1);
+  ctx.font = '12px "DejaVu Sans", Verdana, sans-serif'; ctx.fillStyle = COLORS.muted; ctx.strokeStyle = COLORS.grid;
+  const raw = (hi - lo) / 5, mag = Math.pow(10, Math.floor(Math.log10(raw))), step = [1, 2, 5, 10].map(k => k * mag).find(s => s >= raw);
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) { const y = Y(v); ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(W - R, y); ctx.stroke(); ctx.fillText((Math.abs(v) < step / 2 ? 0 : v).toFixed(step < 1 ? 1 : 0).replace("-", "−"), 4, y + 4); }
+  for (let i = 0; i <= 6; i++) { const v = t0 + (t1 - t0) * i / 6, x = X(v); ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, H - B); ctx.stroke(); ctx.fillText(v.toFixed(1) + " s", x - 12, H - 5); }
+  for (const [ys, col, sty] of series) {
+    ctx.strokeStyle = col; ctx.lineWidth = sty === "solid" ? 1.9 : sty === "dashed" ? 1.8 : 1.6; ctx.setLineDash(DASH[sty] || []);
+    ctx.beginPath(); let pen = false;
     for (let i = 0; i < ys.length; i++) { const v = ys[i]; if (v == null) { pen = false; continue; } const x = X(t[i]), y = Y(v); if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y); }
     ctx.stroke();
   }
+  ctx.setLineDash([]);
   if (cursorT != null) { ctx.strokeStyle = COLORS.ink; ctx.lineWidth = 1; const x = X(cursorT); ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, H - B); ctx.stroke(); }
 }
 
-// ------------------------------------------------------------------ docs
+// ------------------------------------------------------------------ docs (built into the Pages copy, served live by the hub)
 const DIAGRAMS = [["01_system_overview", "System overview"], ["02_software_map", "Software map"], ["03_control_cascade", "Control cascade"],
   ["04_state_machine", "Controller states"], ["05_health_tree", "Health checks"], ["06_root_cause", "Root cause"],
   ["07_data_lineage", "Recordings and lineage"], ["08_electrical", "Electrical"], ["09_calibration", "Finding the end stops"]];
 async function pageDocs(root, id) {
-  const list = await api("/api/docs");
+  const get = p => PAGES ? staticJson(p.slice(1) + ".json") : api(p);
+  const list = await get("/api/docs");
   id = id || (list.docs[0] && list.docs[0].id);
   const nav = h("nav", { class: "doclist" }, ...list.docs.map(d => h("a", { href: "#docs/" + d.id, class: d.id === id ? "on" : "" }, d.title)),
-    h("div", { class: "sub" }, "Diagrams"), ...DIAGRAMS.map(([f, l]) => h("a", { href: "/diagrams/" + f + ".svg", target: "_blank" }, l)));
+    h("div", { class: "sub" }, "Diagrams"), ...DIAGRAMS.map(([f, l]) => h("a", { href: "diagrams/" + f + ".svg", target: "_blank" }, l)));
   const body = h("article", { class: "md" }, "Loading…");
   root.append(h("div", { class: "docs" }, nav, body));
   if (id) {
-    const d = await api("/api/docs/" + id); body.innerHTML = d.html;
+    const d = await get("/api/docs/" + id); body.innerHTML = d.html;
     for (const a of body.querySelectorAll("a[href$='.md']")) { const m = a.getAttribute("href").match(/([A-Z_]+)\.md/); if (m) a.setAttribute("href", "#docs/" + m[1]); }
   }
 }
 
-connect(); poll(); render();
+setupConnect(); connect(); poll(); render(); drawRail();
 </script>
 </body>
 </html>

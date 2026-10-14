@@ -5,6 +5,7 @@
 | `Barlow-Regular/Medium/SemiBold.ttf` | Barlow (Jeremy Tribby) | SIL OFL 1.1 | all UI text, buttons, headings |
 | `BarlowSemiCondensed-Medium.ttf` | Barlow Semi Condensed | SIL OFL 1.1 | the large wheel-angle numeral |
 | `IBMPlexMono-Regular/Medium.ttf` | IBM Plex Mono | SIL OFL 1.1 | file paths, event log, counters |
+| `DejaVuSans.ttf` | DejaVu Sans | DejaVu Fonts License (Bitstream Vera derivative, free) | plot axes, ticks and legends (the app's original font: open, unambiguous digits at small sizes). `web/fonts/DejaVuSans-plot.woff2` is a Latin subset for the browser plots |
 
 Source: github.com/google/fonts (`ofl/barlow`, `ofl/barlowsemicondensed`, `ofl/ibmplexmono`).
 

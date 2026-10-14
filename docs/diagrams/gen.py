@@ -485,18 +485,18 @@ def control_cascade():
     d.edge("src", "clip", "", color="D")
     d.edge("clip", "spk", "", "b", "t", color="D")
     d.node("gT", "group", 500, 140, 560, 400, "Teensy, 1 kHz interrupt", "", "T")
-    d.node("mode", "sw", 526, 196, 150, 64, "Mode", "hold, follow, test", "T")
+    d.node("mode", "sw", 526, 196, 150, 64, "Mode", "position control,\nfollow, test", "T")
     d.node("slew", "sw", 700, 196, 150, 64, "Slew limit", "2300 °/s", "T")
     d.node("ramp", "sw", 876, 196, 160, 64, "Gain ramp", "5% to 100% in 0.8 s", "T")
     d.node("integ", "sw", 876, 306, 160, 64, "Integral and Tff", "leaky, clamp 4 Nm", "T")
-    d.node("safe", "decision", 520, 286, 260, 140, "Trip?", "speed, stall, current,\nswitch, CAN, laptop,\nend stop", "S")
+    d.node("safe", "decision", 520, 286, 260, 140, "Safety stop?", "speed, stall, current,\nswitch, CAN, laptop,\nend stop", "S")
     d.node("pack", "data", 790, 440, 240, 60, "MIT frame", "p, v, kp, kd, torque", "M")
     d.edge("spk", "mode", "", "r", "l", color="C", via=[(490, 372), (490, 228)])
     d.edge("mode", "slew", "", color="T")
     d.edge("slew", "ramp", "", color="T")
     d.edge("ramp", "integ", "", "b", "t", color="T")
     d.edge("integ", "pack", "", "b", "t", color="T")
-    d.edge("safe", "pack", "rest if tripped", "b", "l", color="S")
+    d.edge("safe", "pack", "off if stopped", "b", "l", color="S")
     d.node("gM", "group", 1100, 140, 370, 400, "Motor, 20 kHz", "", "M")
     d.node("foc", "hw", 1126, 196, 318, 84, "FOC current loop", "torque = kp (p* - p) + kd (v* - v) + t_ff", "M")
     d.node("rep", "data", 1150, 350, 270, 60, "Reply", "id, p, v, current", "M")
@@ -510,24 +510,24 @@ def control_cascade():
 def state_machine():
     d = D(1400, 660, "Controller states", "What the Teensy is doing (CS_* in protocol.h) and what moves it between states.")
     d.legend(32, 92, [("state", "state"), ("line", "command or event"), ("dash", "automatic")])
-    d.node("REST", "state", 80, 150, 240, 64, "Resting", "motor off, wheel free", "T")
-    d.node("TRIPPED", "state", 1080, 150, 240, 64, "Tripped", "latched until Clear trip", "S")
-    d.node("HOLD", "state", 80, 310, 1240, 64, "Holding", "motor on, servo to the setpoint: the home state while enabled", "T")
-    d.edge("REST", "HOLD", "Enable", "b", "t", color="T", pa=-60, pb=-560)
-    d.edge("HOLD", "REST", "Disable", "t", "b", color="T", pa=-480, pb=60)
-    d.edge("TRIPPED", "REST", "Clear trip", "l", "r", color="S")
-    d.edge("HOLD", "TRIPPED", "any trip", "t", "b", color="S", pa=580, pb=0)
-    kids = [("FOLLOW", "Following", 80, "setpoint stream, 200 Hz", "stream arrives", "stale or Hold", True),
+    d.node("REST", "state", 80, 150, 240, 64, "Motor off", "driver off, wheel free", "T")
+    d.node("TRIPPED", "state", 1080, 150, 240, 64, "Safety stop", "latched until Reset safety stop", "S")
+    d.node("HOLD", "state", 80, 310, 1240, 64, "Position control", "motor on, servo to the setpoint: the home state while enabled", "T")
+    d.edge("REST", "HOLD", "Position control", "b", "t", color="T", pa=-60, pb=-560)
+    d.edge("HOLD", "REST", "Stop motor", "t", "b", color="T", pa=-480, pb=60)
+    d.edge("TRIPPED", "REST", "Reset safety stop", "l", "r", color="S")
+    d.edge("HOLD", "TRIPPED", "any safety check", "t", "b", color="S", pa=580, pb=0)
+    kids = [("FOLLOW", "Following", 80, "setpoint stream, 200 Hz", "stream arrives", "stale, or Position control", True),
             ("TEST", "Testing", 400, "step or relay test", "test start", "done", False),
-            ("FREESPIN", "Free-spin", 720, "zero torque, backdrivable", "Free-spin", "Hold", False),
+            ("FREESPIN", "Free-spin", 720, "zero torque, backdrivable", "Free-spin", "Position control", False),
             ("CALIB", "Calibrating", 1040, "end stops and zero", "Find end stops", "done", False)]
     for key, name, x, sub, enter, leave, auto in kids:
         d.node(key, "state", x, 500, 280, 64, name, sub, "T")
         cx = x + 140 - 700
         d.edge("HOLD", key, enter, "b", "t", color="T", dashed=auto, pa=cx - 60, pb=-60, at=0.3)
         d.edge(key, "HOLD", leave, "t", "b", color="T", dashed=(key == "TEST"), pa=60, pb=cx + 60, at=0.3)
-    d.note(80, 610, "Also from Resting: Free-spin, Find end stops.  Every energised state trips on overspeed, stall, overcurrent, switch opened,")
-    d.note(80, 630, "motor CAN lost, past an end stop, calibration failed, interrupt overrun, or the laptop going silent while following.  Disable always goes to Resting.")
+    d.note(80, 610, "Also from Motor off: Free-spin, Find end stops.  Every energised state has a safety stop for speed, stall, current, idle switch,")
+    d.note(80, 630, "motor CAN lost, past an end stop, calibration failed, loop overrun, or the laptop going silent while following.  Stop motor always goes to Motor off.")
     return d.save("04_state_machine")
 
 
@@ -536,7 +536,7 @@ def health_tree():
     d.legend(32, 92, [("sw", "decided by the Teensy"), ("data", "decided by the laptop"), ("line", "checked after")])
     groups = [
         ("C", "C  Laptop to Teensy link", [("C1", "serial port open"), ("C2", "bytes arriving"), ("C3", "frames decode"), ("C4", "telemetry fresh"), ("C5", "Teensy hears laptop"), ("C6", "firmware health fresh")], "data"),
-        ("S", "S  Safety", [("S1", "idle switch"), ("S2", "no trip latched")], "sw"),
+        ("S", "S  Safety", [("S1", "idle switch"), ("S2", "no safety stop")], "sw"),
         ("M", "M  Motor and CAN", [("M1", "CAN controller"), ("M2", "CAN transmit"), ("M3", "bus activity"), ("M4", "motor replies"), ("M5", "data sane"), ("M6", "current")], "sw"),
         ("T", "T  Teensy", [("T1", "loop timing"), ("T2", "zeroed, end stops"), ("T3", "calibration"), ("T4", "OLED (optional)")], "sw"),
         ("D", "D  Data and services", [("D1", "recorder"), ("D2", "store"), ("D3", "web hub (optional)"), ("D4", "phone (optional)"), ("D5", "UI loop")], "data"),
@@ -558,16 +558,16 @@ def health_tree():
 
 
 def root_cause():
-    d = D(1700, 940, "Root cause: the motor does not move", "Follow the rail top to bottom. The first row that is not green is where to look.")
+    d = D(1700, 940, "Root cause: the motor does not move", "Follow the rail top to bottom. The first row that is not ok (● ok, ▲ not ready, ■ fault) is where to look.")
     d.legend(32, 92, [("decision", "question"), ("sw", "what to do"), ("line", "answer")])
     cols = [
-        ("C", "USB row green?", "C1 to C6", [("C1 red", "pick the Teensy port, re-plug USB"), ("C2 red", "Teensy not running this firmware:\nreset or flash"),
-                                             ("C3 red", "frames don't decode:\nprotocol version, cable"), ("C5 red", "Teensy can't hear the laptop")]),
-        ("S", "Safety row green?", "S1, S2", [("S1 amber", "close the idle switch"), ("S2 red", "read the trip reason in the rail,\nfix the cause, Clear trip")]),
-        ("M", "CAN and Motor rows green?", "M1 to M6", [("M1 red", "bus-off: transceiver, termination,\nwiring"), ("M2 red", "nobody acknowledges:\nmotor unpowered"),
-                                                        ("M4 amber", "no reply: 24 V, CAN id\n(Settings, Scan the bus)"), ("M5 red", "frozen data: encoder, power-cycle")]),
-        ("T", "Teensy row green?", "T1 to T4", [("T2 amber", "not zeroed: Calibrate page"), ("T3 amber", "calibration running:\nwait or Abort"),
-                                                 ("T1 red", "loop overruns: OLED / I2C,\nreport it")]),
+        ("C", "USB row ok?", "C1 to C6", [("C1 ■", "pick the Teensy port, re-plug USB"), ("C2 ■", "Teensy not running this firmware:\nreset or flash"),
+                                             ("C3 ■", "frames don't decode:\nprotocol version, cable"), ("C5 ■", "Teensy can't hear the laptop")]),
+        ("S", "Safety row ok?", "S1, S2", [("S1 ▲", "turn the idle switch off"), ("S2 ■", "read the safety stop in the rail,\nfix the cause, Reset safety stop")]),
+        ("M", "CAN and Motor rows ok?", "M1 to M6", [("M1 ■", "bus-off: transceiver, termination,\nwiring"), ("M2 ■", "nobody acknowledges:\nmotor unpowered"),
+                                                        ("M4 ▲", "no reply: 24 V, CAN id\n(Settings, Scan the bus)"), ("M5 ■", "frozen data: encoder, power-cycle")]),
+        ("T", "Teensy row ok?", "T1 to T4", [("T2 ▲", "not calibrated: Calibrate page"), ("T3 ▲", "calibration running:\nwait or Stop"),
+                                                 ("T1 ■", "loop overruns: OLED / I2C,\nreport it")]),
     ]
     x = 40
     prev = None
@@ -577,17 +577,17 @@ def root_cause():
         if prev:
             d.edge(prev, qk, "yes", color="N")
         gk = f"a{g}"
-        d.node(gk, "group", x, 300, 360, 46 + len(answers) * 88, "The first one that isn't green:", "", g)
+        d.node(gk, "group", x, 300, 360, 46 + len(answers) * 88, "The first one that isn't ok:", "", g)
         for i, (lbl, txt) in enumerate(answers):
             d.node(f"{g}{i}", "sw", x + 20, 340 + i * 88, 320, 74, lbl, txt, g)
         d.edge(qk, gk, "no", "b", "t", color=g)
         prev = qk
         x += 410
     d.node("qState", "decision", 600, 770, 320, 104, "What state does the rail show?", "", "T")
-    d.edge("qT", "qState", "all green", "r", "t", color="N", via=[(1682, 192), (1682, 730), (760, 730)], seg=2, at=0.3)
-    d.node("e1", "sw", 80, 784, 420, 76, "Resting", "press Hold. If it drops back, the last event\nin the rail says why", "T")
-    d.node("e2", "sw", 1020, 760, 420, 66, "Holding, but no motion", "gains too low for the friction: raise Kp, add Ki", "T")
-    d.node("e3", "sw", 1020, 840, 420, 66, "Free-spin", "zero torque by design: press Hold", "T")
+    d.edge("qT", "qState", "all ok", "r", "t", color="N", via=[(1682, 192), (1682, 730), (760, 730)], seg=2, at=0.3)
+    d.node("e1", "sw", 80, 784, 420, 76, "Motor off", "press Position control. If it drops back,\nthe last event in the rail says why", "T")
+    d.node("e2", "sw", 1020, 760, 420, 66, "Position control, but no motion", "gains too low for the friction: raise Kp, add Ki", "T")
+    d.node("e3", "sw", 1020, 840, 420, 66, "Free-spin", "zero torque by design: press Position control", "T")
     d.edge("qState", "e1", "", "l", "r", color="T")
     d.edge("qState", "e2", "", "r", "l", color="T", via=[(970, 793)])
     d.edge("qState", "e3", "", "r", "l", color="T", via=[(970, 873)])
@@ -643,7 +643,7 @@ def electrical():
     d.node("usb", "hw", 760, 450, 220, 64, "Laptop USB", "5 V and data", "C")
     d.edge("usb", "teensy", "USB serial", "r", "l", kind="bi", color="C", pb=60, via=[(1030, 482)])
     d.note(40, 360, "Not sensed by the Teensy: bus voltage (motor power is inferred from CAN replies, check M4) and motor temperature.")
-    d.note(40, 384, "Fail-safe: a broken switch wire reads idle (pull-up). A lost CAN reply trips to Resting within 200 ms.")
+    d.note(40, 384, "Fail-safe: a broken switch wire reads idle (pull-up). A lost CAN reply is a safety stop (motor off) within 200 ms.")
     return d.save("08_electrical")
 
 
@@ -652,7 +652,7 @@ def calibration():
     d.legend(32, 92, [("sw", "stage"), ("decision", "check"), ("line", "next"), ("dash", "retry")])
     stages = [("s1", "Find left stop", "creep at 30 °/s\ntorque ramps 1 to 3.5 Nm"), ("c1", "Real stop?", "still 0.6 s,\nbump 1 Nm"),
               ("s2", "Find right stop", "same, other way"), ("c2", "Real stop?", "and range over 60°"),
-              ("go", "Move to centre", "(L + R) / 2 at 40 °/s\nKp 25, Kd 1.5"), ("set", "Settle and zero", "within 3°, still 0.8 s\nzero there")]
+              ("go", "Move to the middle", "(L + R) / 2 at 40 °/s\nKp 25, Kd 1.5"), ("set", "Settle, set 0°", "within 3°, still 0.8 s\n0° there")]
     x = 40
     for key, lbl, sub in stages:
         kind = "decision" if key.startswith("c") else "sw"
@@ -662,7 +662,7 @@ def calibration():
         d.edge(a, b, "yes" if a.startswith("c") else "", color="T")
     d.edge("c1", "s1", "moved: keep going", "b", "b", color="T", dashed=True, via=[(391, 310), (147, 310)])
     d.edge("c2", "s2", "moved", "b", "b", color="T", dashed=True, via=[(879, 310), (635, 310)])
-    d.note(40, 360, "Outcome: end stops valid, zero set, holding at 0°. A 25 s timeout per stop or a range under 60° trips (calibration failed). End-stop trips are off while calibrating.")
+    d.note(40, 360, "Outcome: end stops valid, 0° set, position control at 0°. A 25 s timeout per stop or a range under 60° is a safety stop (calibration failed). The end-stop check is off while calibrating.")
     return d.save("09_calibration")
 
 

@@ -26,43 +26,66 @@ from pathlib import Path
 import dearpygui.dearpygui as dpg
 
 from .. import protocol as P
+from .. import words as W
 
 FONT_DIR = Path(__file__).resolve().parent / "fonts"
 
 # ---- palette ----------------------------------------------------------------------------------
 PAPER   = (244, 245, 246)     # workspace
 RAIL    = (230, 233, 236)     # system rail
-SURFACE = (255, 255, 255)     # fields, plots, cards
+SURFACE = (255, 255, 255)     # fields, cards
 INK     = (27, 33, 41)        # text, primary buttons
 MUTED   = (104, 113, 124)     # secondary text
 FAINT   = (163, 170, 179)     # disabled text, unknown status
 RULE    = (210, 214, 219)     # borders
 HOVER   = (236, 239, 242)
 SELECT  = (222, 231, 245)     # selected row
-SIGNAL  = (43, 95, 174)       # the measured position (plots, slider grab)
+WELL    = (236, 239, 243)     # plot data area: a shade darker than the sheet, so plots read as inset
 
-OK      = (47, 138, 87)
-WARN    = (181, 117, 14)
-BAD     = (194, 54, 45)
+# Status colours, chosen for red-green colour blindness: a blue-leaning green, an amber and a
+# vermillion differ in lightness and along the blue-yellow axis, not only red vs green.  Every
+# status mark ALSO has its own shape (status_mark): circle ok, triangle not ready, square fault.
+OK      = (0, 128, 98)
+WARN    = (196, 126, 0)
+BAD     = (205, 62, 22)
 IDLE    = FAINT
 
-# legacy names some panels still use
-TEXT, DIM, ACCENT, UNKNOWN = INK, MUTED, SIGNAL, FAINT
+# ---- plot lines -------------------------------------------------------------------------------
+# Line STYLE says what kind of quantity it is:   solid = measured   dashed = setpoint the Teensy
+# commanded   dotted = what was requested (before the Teensy's slew limit).
+# Line COLOUR says where it came from (setpoints) or which quantity it is (measured).
+POSITION = (0, 102, 170)      # measured wheel angle and speed: the one blue
+SOURCE_COLOR = {
+    "user": (0, 112, 74),         # Position control (slider / Move to 0°): dark green
+    "playback": (98, 186, 132),   # playing a recording back: pastel green
+    "trajectory": (98, 186, 132), # a synthetic waveform: same pastel green
+    "planner": (214, 128, 0),     # external planner stream: orange
+    "test": (128, 133, 140),      # step / relay test run by the Teensy: grey
+    "calib": (128, 133, 140),     # calibration routine: grey
+}
+TORQUE = (205, 86, 26)        # torque command (dashed) and motor current (solid): vermillion
+ERROR = (90, 96, 104)         # tracking error (derived): dark grey
+SIGNAL = POSITION             # slider dot, links
 
 SERIES = {
-    "position": SIGNAL, "setpoint": INK, "target": (122, 91, 181), "error": (176, 104, 52),
-    "velocity": SIGNAL, "current": (122, 91, 181), "torque": FAINT, "cursor": INK, "trim": BAD,
+    "position": (POSITION, "solid", 2.2), "velocity": (POSITION, "solid", 1.8),
+    "current": (TORQUE, "solid", 1.6), "torque": (TORQUE, "dashed", 1.6), "error": (ERROR, "solid", 1.6),
+    "cursor": (INK, "solid", 1.0), "trim": (BAD, "solid", 1.2), "preview": (SOURCE_COLOR["trajectory"], "dashed", 2.0),
 }
-SERIES_WEIGHT = {"setpoint": 1.2, "position": 2.0}
+for _k, _c in SOURCE_COLOR.items():
+    SERIES[f"sp_{_k}"] = (_c, "dashed", 2.0)
+    SERIES[f"req_{_k}"] = (_c, "dotted", 1.6)
+DASH = {"solid": None, "dashed": (8.0, 5.0), "dotted": (2.0, 4.0)}
 
 STATE_COLOR = {P.HS_OK: OK, P.HS_BLOCKED: WARN, P.HS_FAIL: BAD, P.HS_UNKNOWN: IDLE}
-STATE_WORD = {P.HS_OK: "ok", P.HS_BLOCKED: "blocked", P.HS_FAIL: "failed", P.HS_UNKNOWN: "unknown"}
+STATE_WORD = dict(W.VERDICT)
 
-# controller state, said the way an operator would
-CS_WORD = {P.CS_REST: "Resting", P.CS_HOLD: "Holding", P.CS_TRAJ: "Following", P.CS_TEST: "Testing",
-           P.CS_FREESPIN: "Free-spin", P.CS_CALIB: "Calibrating", P.CS_TRIPPED: "Tripped"}
-CS_COLOR = {P.CS_REST: INK, P.CS_HOLD: INK, P.CS_TRAJ: INK, P.CS_TEST: INK,
-            P.CS_FREESPIN: INK, P.CS_CALIB: INK, P.CS_TRIPPED: BAD}
+# controller state, said the way an operator would (words.py)
+CS_WORD = dict(W.STATE)
+CS_COLOR = {cs: (BAD if cs == P.CS_TRIPPED else INK) for cs in W.STATE}
+
+TIP_DELAY_S = 0.9            # hover this long before a control explains itself
+SLIDER_GRAB_PX = 18
 
 _themes: dict = {}
 FONTS: dict = {}
@@ -87,6 +110,8 @@ def build():
         _font("numeral", "BarlowSemiCondensed-Medium.ttf", 56)
         _font("mono", "IBMPlexMono-Regular.ttf", 14)
         _font("mono_s", "IBMPlexMono-Regular.ttf", 13)
+        _font("plot", "DejaVuSans.ttf", 14)              # the original plot font: open digits, tight at small sizes
+        _font("plot_s", "DejaVuSans.ttf", 12)
     if "body" in FONTS:
         dpg.bind_font(FONTS["body"])
 
@@ -151,13 +176,13 @@ def build():
             s(dpg.mvStyleVar_TabBarOverlineSize, 2)
             s(dpg.mvStyleVar_TabBarBorderSize, 0)
             pc = lambda k, v: dpg.add_theme_color(k, v, category=dpg.mvThemeCat_Plots)
-            pc(dpg.mvPlotCol_PlotBg, SURFACE)
+            pc(dpg.mvPlotCol_PlotBg, WELL)               # inset: the data area is a shade darker
             pc(dpg.mvPlotCol_FrameBg, SURFACE)
-            pc(dpg.mvPlotCol_PlotBorder, (0, 0, 0, 0))
+            pc(dpg.mvPlotCol_PlotBorder, RULE)
             pc(dpg.mvPlotCol_LegendBg, (255, 255, 255, 230))
             pc(dpg.mvPlotCol_LegendBorder, (0, 0, 0, 0))
             pc(dpg.mvPlotCol_LegendText, MUTED)
-            pc(dpg.mvPlotCol_AxisGrid, (234, 236, 239))
+            pc(dpg.mvPlotCol_AxisGrid, (255, 255, 255))      # white grid on the darker well
             pc(dpg.mvPlotCol_AxisText, MUTED)
             pc(dpg.mvPlotCol_AxisBg, (0, 0, 0, 0))
             pc(dpg.mvPlotCol_AxisBgHovered, HOVER)
@@ -186,13 +211,12 @@ def build():
                 dpg.add_theme_color(dpg.mvThemeCol_Border, RULE)
     dpg.bind_theme(g)
 
-    for name, col in SERIES.items():
+    for name, (col, style, weight) in SERIES.items():
         with dpg.theme() as t:
             for comp in (dpg.mvLineSeries, dpg.mvInfLineSeries):
                 with dpg.theme_component(comp):
                     dpg.add_theme_color(dpg.mvPlotCol_Line, col, category=dpg.mvThemeCat_Plots)
-                    dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, SERIES_WEIGHT.get(name, 1.5),
-                                        category=dpg.mvThemeCat_Plots)
+                    dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, weight, category=dpg.mvThemeCat_Plots)
         _themes[f"series_{name}"] = t
 
     # ---- buttons --------------------------------------------------------------------------
@@ -238,10 +262,24 @@ def build():
             dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, HOVER)
     _themes["toggle"] = t
 
-    with dpg.theme() as t:
+    with dpg.theme() as t:                      # the setpoint slider: transparent track (drawn underneath), green grab
         with dpg.theme_component(dpg.mvSliderFloat):
-            dpg.add_theme_style(dpg.mvStyleVar_GrabMinSize, 22)
+            dpg.add_theme_style(dpg.mvStyleVar_GrabMinSize, SLIDER_GRAB_PX)
             dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 10)
+            dpg.add_theme_style(dpg.mvStyleVar_GrabRounding, 4)
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_Border, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, SOURCE_COLOR["user"])
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (0, 90, 60))
+        with dpg.theme_component(dpg.mvSliderFloat, enabled_state=False):
+            dpg.add_theme_style(dpg.mvStyleVar_GrabMinSize, SLIDER_GRAB_PX)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 10)
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_Border, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (0, 0, 0, 0))
     _themes["slider_big"] = t
 
     with dpg.theme() as t:                      # the system rail
@@ -346,25 +384,38 @@ def mono_text(text: str = "", color=INK, wrap: int = 0, small: bool = False, bol
     return t
 
 
-def action(text: str, kind: str, callback, width: int = 0, user_data=None):
+def action(text: str, kind: str, callback, width: int = 0, user_data=None, tip_text: str = ""):
     kind = KIND_ALIAS.get(kind, kind)
     b = dpg.add_button(label=text, width=width, callback=callback, user_data=user_data)
     dpg.bind_item_theme(b, theme(f"btn_{kind}"))
     bind_font(b, "label" if kind != "quiet" else "small")
+    if tip_text:
+        tip(b, tip_text)
     return b
 
 
-def toggle(text: str, default: bool, callback=None, user_data=None):
+def toggle(text: str, default: bool, callback=None, user_data=None, tip_text: str = ""):
     c = dpg.add_checkbox(label=text, default_value=default, callback=callback, user_data=user_data)
     dpg.bind_item_theme(c, theme("toggle"))
+    if tip_text:
+        tip(c, tip_text)
     return c
 
 
-def number(text: str, default: float, width: int = 90, fmt: str = "%.2f", callback=None):
+def number(text: str, default: float, width: int = 90, fmt: str = "%.2f", callback=None, tip_text: str = "",
+           label_w: int = 0):
     """Numeric field with its label on the left (label reads first)."""
     with dpg.group(horizontal=True):
-        label(text, MUTED)
+        lb = label(text, MUTED)
+        if label_w:
+            sz = dpg.get_text_size(text, font=font("small")) if font("small") else None
+            pad = label_w - (sz[0] if sz and sz[0] > 0 else len(text) * 7.2)
+            if pad > 0:
+                dpg.add_spacer(width=int(pad))
         i = dpg.add_input_float(default_value=default, width=width, step=0, format=fmt, callback=callback)
+    if tip_text:
+        tip(lb, tip_text)
+        tip(i, tip_text)
     return i
 
 
@@ -379,3 +430,36 @@ def card(**kw):
 
 def bind_card(item):
     dpg.bind_item_theme(item, theme("card"))
+
+
+def tip(item, text: str, width: int = 360):
+    """Explain what a control is for.  Appears after TIP_DELAY_S of hovering, so it never gets in
+    the way of someone who already knows.  Gated controls get theirs from GateBinder instead."""
+    with dpg.tooltip(item, delay=TIP_DELAY_S):
+        t = dpg.add_text(text, wrap=width)
+        bind_font(t, "small")
+
+
+def status_mark(dl, center, state: int, off: bool = False, r: float = 5.0):
+    """Status drawn with shape AND colour (readable without colour vision):
+    ok = filled circle, not ready = triangle, fault = square, no data / off = ring."""
+    x, y = center
+    col = STATE_COLOR[state]
+    if off or state == P.HS_UNKNOWN:
+        dpg.draw_circle((x, y), r - 0.5, color=FAINT, thickness=1.6, parent=dl)
+    elif state == P.HS_OK:
+        dpg.draw_circle((x, y), r, fill=col, color=col, parent=dl)
+    elif state == P.HS_BLOCKED:
+        h = r * 1.15
+        dpg.draw_triangle((x, y - h), (x - h, y + h * 0.8), (x + h, y + h * 0.8), fill=col, color=col, parent=dl)
+    else:
+        dpg.draw_rectangle((x - r, y - r), (x + r, y + r), fill=col, color=col, parent=dl)
+
+
+def series(name: str, item):
+    """Bind a plot line to its colour/weight (style is applied by lines.py when the data is set)."""
+    dpg.bind_item_theme(item, _themes[f"series_{name}"])
+
+
+def plot_font(plot):
+    bind_font(plot, "plot")

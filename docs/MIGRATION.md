@@ -39,6 +39,22 @@ and the logo splash, and replaces everything else.
 * **XOR checksum** replaced by CRC-8 (same cost, catches burst errors); sequence numbers count drops.
 * **Protocol v3** (this revision) removes the joystick/bridge packets and the bridge health node; controller states and health node indices were renumbered — flash firmware and PC from the same commit.
 
+## UI pass 2 (Oct 2026): words, colour blindness, plots, Wi-Fi
+
+| Old | New | Why |
+|---|---|---|
+| "Hold" for the motor-on mode, the button and the state ("Holding") | **Position control** everywhere (rail button, state, docs, OLED `POS CTRL`) | "Hold" could mean a mode, holding with torque, pausing, or stopping |
+| "Trip", "Clear trip", "Tripped" | **Safety stop**, **Reset safety stop** | says what happened, not the firmware term |
+| Reasons like `T2 Zeroed + limits: blocked`, `S1 ... IDLE (switch open)`, `M4 0 Hz, last 6057 ms ago` | `Not calibrated: no 0° and no end stops [T2]`, `Idle switch on: the motor is not allowed to have torque [S1]`, `Motor stopped replying on CAN 6.1 s ago (id 2) [M4]` | the physical problem first, with the number; id last. Identical reasons from several checks are merged, "no data" ones dropped when a real problem upstream explains them |
+| Firmware trip text `overcurrent`, rejections `idle switch is IDLE`, `need HOLD state` | trip text carries the measured value (`31.2 A`, `1502 deg/s`, `16 deg past L`, integer-only formatting in the ISR); rejections `idle switch on`, `needs position ctrl` | the rail shows "Motor current too high (31.2 A)" |
+| "Centre" (ambiguous: go there or set it?) | **Move to 0°** (moves; sits above 0° on the scale), **Set 0° at the current angle**, **Move to the middle of the stops and set 0°** | buttons say exactly what happens |
+| Slider shows only the command | green grab = your setpoint; blue dot underneath = measured angle; end stops and 90° ticks on the track | see lag and error at a glance |
+| Captions under states and sections | removed; every control explains itself in a tooltip after ~1 s | less to read, more when you ask |
+| Green/red status, blue/violet/black plot lines | colour-blind-safe status colours **and** shapes (● ▲ ■ ○); plot grammar solid = measured, dashed = setpoint, dotted = requested, colour = source | readable with red-green colour blindness |
+| White plots on a white sheet, Barlow ticks | inset plot well with white grid, DejaVu Sans (the original plot font) | plots separate from the page |
+| Drive: one plot, speed/current behind a checkbox, empty right half | wheel strip on top, live numbers + record + events on the left, angle / speed / torque-and-current plots on the right (collapsible); the same live plots on Tune and Calibrate | uses the space; torque and speed always in view |
+| Hub only at `http://<laptop>:8765/` | also published to GitHub Pages; connects to the laptop (in place on the laptop itself, by hand-over on other devices), `genauto.local` via mDNS, QR code in Settings; CORS limited to the Pages origin and the WebSocket refuses other origins | one bookmark that works from anywhere |
+
 ## Verify on hardware (first session with the new firmware)
 
 0. Confirm the unit: the project page says 8/24 N·m (BM-24), earlier notes said BM-18. Set
@@ -46,14 +62,14 @@ and the logo splash, and replaces everything else.
 
 1. Flash the Teensy, connect, motor off: expect the USB row green, the Motor row `no reply` (amber), Safety
    per switch. Power the motor: Motor green, `can_rx_motor_hz` ≈ 0 in REST (the motor only answers commands).
-2. Hold (motor must be free to move): state Holding, `can_rx_motor_hz` ≈ 1000, T1 ≈ 1000 Hz, 0 overruns.
-3. **Torque scale check**: in HOLD with Kp=Kd=0, set Tff = 1.0 Nm and apply: the wheel should push
+2. Position control (motor must be free to move): state "Position control", `can_rx_motor_hz` ≈ 1000, T1 ≈ 1000 Hz, 0 overruns.
+3. **Torque scale check**: in Position control with Kp=Kd=0, set Tff = 1.0 Nm and Send gains: the wheel should push
    with ~1 Nm (gently). If it pushes ~3× harder, your motor uses ±6 Nm — set `MOTOR_T_MIN/MAX_NM` to ±6.
    Also compare `current_A` against the bench supply current.
 4. Calibrate with a hand on the switch; watch the stage line. If seek times out at 3.5 Nm, raise
    `CAL_SEEK_TORQUE_MAX_NM` modestly.
-5. Open the switch while HOLD → immediate TRIP SWITCH_OPENED, banner explains, Enable greyed until cleared.
-6. Pull USB during a trajectory → wheel goes limp (TRIP PC_LINK_LOST); replug → D reconnects; Clear trip.
+5. Turn the idle switch on during Position control → immediate safety stop "Idle switch turned on while running", the rail explains, Position control greyed until reset.
+6. Pull USB during a trajectory → wheel goes limp (safety stop "Laptop stopped sending setpoints"); replug → reconnects; Reset safety stop.
 
 ## Things intentionally not carried over
 

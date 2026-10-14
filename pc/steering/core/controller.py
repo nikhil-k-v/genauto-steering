@@ -31,13 +31,16 @@ from ..data.store import Recording, Store
 from ..health.gating import GateContext, GateResult, can
 from ..health.model import HealthTree, empty_tree
 from ..link import Link
+from ..words import STATE, refused
 
 log = logging.getLogger(__name__)
 
 
 class ActionRefused(Exception):
     def __init__(self, action: str, result: GateResult):
-        super().__init__(f"{action}: " + "; ".join(result.reasons))
+        from ..health.gating import ACTIONS
+        label = ACTIONS[action][0] if action in ACTIONS else action
+        super().__init__(f"{label} not available: " + "; ".join(result.reasons))
         self.action, self.result = action, result
 
 
@@ -51,6 +54,7 @@ class LiveState:
     last_event: Optional[P.EventPacket] = None
     last_rejection: str = ""
     last_rejection_t: float = 0.0
+    trip_text: str = ""                      # firmware detail of the last safety stop ("31.2 A")
     can_scan_ids: list = field(default_factory=list)
     pending_gains: Optional[dict] = None     # gains sent but not yet echoed back
 
@@ -73,6 +77,8 @@ class Controller:
         self.streamer = Streamer(bus, link)
         self.live = LiveState()
         self.selected_recording: Optional[Recording] = None
+        self.stream_kind = ""                 # "playback" / "trajectory" / "planner" while TRAJ
+        self._ext_t = 0.0
         self.collection = collection_getter
         self._lock = threading.Lock()
         bus.subscribe("telemetry", self._on_telemetry)
@@ -95,10 +101,11 @@ class Controller:
     def _on_event(self, e: P.EventPacket):
         self.live.last_event = e
         if e.code == P.EV_CMD_REJECTED:
-            self.live.last_rejection = f"Teensy refused {P.CMD_NAMES.get(e.arg, hex(e.arg))}: {e.text_str}"
+            self.live.last_rejection = refused(e.arg, e.text_str)
             self.live.last_rejection_t = time.monotonic()
             log.warning(self.live.last_rejection)
         elif e.code == P.EV_TRIP:
+            self.live.trip_text = e.text_str
             log.error("TRIP %s: %s", P.TRIP_NAMES.get(e.arg, e.arg), e.text_str)
 
     # ---- gating -----------------------------------------------------------------------------
@@ -157,6 +164,28 @@ class Controller:
         self._gate("capture_limits", left=left, right=right)
         self.link.send(P.limits(left, right))
 
+    def move_to_zero(self):
+        """Position control setpoint 0° (slewed by the Teensy like any slider move)."""
+        self._gate("move_to_zero")
+        self.link.send(P.mode_request(P.MODE_HOLD, sticky=True))
+        self.link.send(P.setpoint(0, 0.0))
+
+    def setpoint_source(self) -> str:
+        """Who is producing the setpoint right now: user / playback / trajectory / planner / test / calib,
+        or "" when nothing is (motor off, free-spin, safety stop).  Plots colour the setpoint by this."""
+        cs = self.live.ctrl_state
+        if cs == P.CS_HOLD:
+            return "user"
+        if cs == P.CS_TRAJ:
+            if self.streamer.active:
+                return self.stream_kind or "trajectory"
+            return "planner"
+        if cs == P.CS_TEST:
+            return "test"
+        if cs == P.CS_CALIB:
+            return "calib"
+        return ""
+
     def slider(self, pos_deg: float):
         """Direct setpoint in HOLD. Sent as a one-shot setpoint stream element in HOLD mode:
         the firmware slews it, so the slider can never jump the wheel."""
@@ -178,6 +207,7 @@ class Controller:
             return r
         if self.live.ctrl_state != P.CS_TRAJ:
             self.link.send(P.mode_request(P.MODE_TRAJ, sticky=True))
+        self._ext_t = time.monotonic()
         self._ext_seq = (getattr(self, "_ext_seq", 0) + 1) & 0xFFFF
         self.bus.publish("stream_target", pos_deg)
         self.link.send(P.setpoint(self._ext_seq, pos_deg, vel_ff, int(time.monotonic() * 1000)))
@@ -209,11 +239,11 @@ class Controller:
         if t is None or time.monotonic() - self.live.telemetry_t > 0.3:
             return "telemetry lost"
         if t.ctrl_state not in (P.CS_HOLD, P.CS_TRAJ):
-            return f"motor left TRAJ/HOLD ({P.CS_NAMES.get(t.ctrl_state)})"
+            return f"the motor left Position control (now: {STATE.get(t.ctrl_state, '?')})"
         tree = self.live.tree
         for nid in ("S1", "S2", "M4", "C5"):
             if tree.nodes[nid].state == P.HS_FAIL or (nid in ("S1", "S2") and tree.nodes[nid].state == P.HS_BLOCKED):
-                return f"{nid} {tree.nodes[nid].reason}"
+                return f"{tree.nodes[nid].reason} [{nid}]"
         return None
 
     def _run(self, traj: Trajectory, kind: str, name: str, parent: Optional[Recording] = None, notes: str = ""):
@@ -223,6 +253,7 @@ class Controller:
             lo, hi = cfg.limit_left_deg + 3.0, cfg.limit_right_deg - 3.0
         traj = traj.clipped(lo, hi).offset(self.live.position, blend_s=0.6)
         rec = self._auto_record(kind, name, parent, notes)
+        self.stream_kind = kind
         self.streamer.on_done = lambda ok: self.recorder.stop()
         self.streamer.start(traj, self._abort_check)
         return rec

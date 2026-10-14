@@ -1,24 +1,34 @@
 """Drive - command the wheel, watch it, record it.
 
-    Wheel angle  [===========o=================]   End stops −142° and +138°
-                 [Centre]
-    ┌ plot: position (blue), setpoint (ink), stream target (violet) ┐
-    └──────────────────────────────────────────────────────────────┘
-    ☐ Speed and current      Window [10 s]
-    Record   [name      ] [Record]   saves to  default / 2026-10-14
+    Setpoint +25.0°              [Move to 0°]                     Position +25.1°
+    ├──────────────────────────────●▮───────────────────────────────────────┤
+    left stop −220°     −90      0      +90                   right stop +220°
+
+    ┌ Now ──────────────┐  ┌ legend: real line styles ─────────────────────┐
+    │ Setpoint from …   │  │ wheel angle                                    │
+    │ Error    +0.1°    │  │                                                │
+    │ Speed    …        │  ├ ▾ Speed ───────────────────────────────────────┤
+    │ Current  …        │  ├ ▾ Torque and current ──────────────────────────┤
+    │ Torque   …        │  │                                                │
+    ├ Record ───────────┤  └ Time span [10 s]  ☑ Auto-scale ────────────────┘
+    │ [name ] [Record]  │
+    │ Saves to [coll ▾] │
+    └───────────────────┘
 """
 from __future__ import annotations
 
 import time
-from collections import deque
 
 import dearpygui.dearpygui as dpg
 
 from ... import protocol as P
+from ... import words as W
 from .. import theme as T
-from ..safe import safe, toast
+from ..liveplot import LivePlot
+from ..safe import safe
+from ..wheel import WheelStrip
 
-WINDOWS = ["5 s", "10 s", "30 s", "60 s"]
+LEFT_W = 300
 
 
 class DrivePanel:
@@ -26,76 +36,75 @@ class DrivePanel:
         self.ui = ui
         self.app = ui.app
         self.c = ui.app.controller
-        self.buf = deque(maxlen=12000)        # (t, sp, target, pos, vel, cur)
-        self.t0 = time.monotonic()
-        self._target = float("nan")
-        self.app.bus.subscribe("telemetry", self._on_t)
-        self.app.bus.subscribe("stream_target", lambda v: setattr(self, "_target", float("nan") if v is None else float(v)))
         self.tags = {}
+        self.wheel = WheelStrip(ui, "drive")
+        self.plot = LivePlot(ui, "drive")
         self._h = 600
-
-    def _on_t(self, t: P.TelemetryPacket):
-        self.buf.append((time.monotonic() - self.t0, t.setpoint_deg, self._target, t.position_deg,
-                         t.velocity_deg_s, t.current_A))
 
     # ---- build -----------------------------------------------------------------------------------
     def build(self):
         g = self.ui.gate
-        T.heading("Wheel angle")
-        self.tags["slider"] = dpg.add_slider_float(default_value=0.0, min_value=-180, max_value=180, width=-1,
-                                                   format="%+.1f°", callback=safe(self._slider))
-        dpg.bind_item_theme(self.tags["slider"], T.theme("slider_big"))
-        g.bind(self.tags["slider"], "slider", "Drag to command an angle. The Teensy slews it, so the wheel never jumps.")
-        with dpg.group(horizontal=True):
-            b = T.action("Centre", "secondary", safe(lambda: self._set_slider(0.0)))
-            g.bind(b, "slider", "Command 0°.")
-            self.tags["limits"] = T.label("")
+        self.wheel.build()
         T.gap(10)
-
-        with dpg.plot(height=360, width=-1, tag="drive_plot", no_title=True, no_frame=True, no_mouse_pos=True, no_menus=True, no_box_select=True):
-            dpg.add_plot_legend(location=dpg.mvPlot_Location_NorthEast, horizontal=True)
-            dpg.add_plot_axis(dpg.mvXAxis, tag="drive_x", no_tick_labels=False)
-            y = dpg.add_plot_axis(dpg.mvYAxis, label="degrees", tag="drive_y")
-            for s, lab in (("setpoint", "setpoint"), ("target", "stream target"), ("position", "position")):
-                dpg.add_line_series([], [], label=lab, parent=y, tag=f"drive_{s}")
-                dpg.bind_item_theme(f"drive_{s}", T.series_theme(s))
-        with dpg.plot(height=160, width=-1, tag="drive_plot2", no_title=True, no_frame=True, no_mouse_pos=True, no_menus=True, no_box_select=True, show=False):
-            dpg.add_plot_legend(location=dpg.mvPlot_Location_NorthEast, horizontal=True)
-            dpg.add_plot_axis(dpg.mvXAxis, tag="drive_x2")
-            y1 = dpg.add_plot_axis(dpg.mvYAxis, label="deg/s", tag="drive_y2")
-            y2 = dpg.add_plot_axis(dpg.mvYAxis2, label="A", tag="drive_y3", opposite=True) if hasattr(dpg, "mvYAxis2") else y1
-            dpg.add_line_series([], [], label="speed", parent=y1, tag="drive_velocity")
-            dpg.bind_item_theme("drive_velocity", T.series_theme("velocity"))
-            dpg.add_line_series([], [], label="current", parent=y2, tag="drive_current")
-            dpg.bind_item_theme("drive_current", T.series_theme("current"))
-        with dpg.group(horizontal=True):
-            self.tags["more"] = T.toggle("Speed and current", False, safe(self._more))
-            dpg.add_spacer(width=18)
-            self.tags["fit"] = T.toggle("Fit vertical axis", self.app.settings.auto_bounds)
-            dpg.add_spacer(width=18)
-            T.label("Window")
-            win = f"{int(self.app.settings.plot_seconds)} s"
-            self.tags["win"] = dpg.add_combo(WINDOWS, default_value=win if win in WINDOWS else "10 s", width=80)
-
-        T.gap(16)
-        T.heading("Record")
-        with dpg.group(horizontal=True):
-            self.tags["name"] = T.text_input("manual", 220, "name")
-            self.tags["rec"] = T.action("Record", "primary", safe(self._record), 150)
-            g.bind(self.tags["rec"], self._rec_action, {
-                "record": "Record telemetry, health and events now.",
-                "record_freespin": "Record the wheel moved by hand (kind: free-spin). Play it back from Library.",
-                "stop_record": "Stop and save. It appears in Library."})
-            self.tags["rec_info"] = T.label("")
-        with dpg.group(horizontal=True):
-            T.label("Saves to")
-            self.tags["coll"] = dpg.add_combo(self.app.store.collections() or ["default"], default_value=self.app.settings.collection,
-                                              width=160, callback=safe(self._set_collection))
-            self.tags["path"] = T.mono_text("", T.MUTED, small=True)
-            nb = T.action("New collection", "quiet", None)
-            with dpg.popup(nb, mousebutton=dpg.mvMouseButton_Left, tag="new_coll_pop"):
-                self.tags["new_coll"] = T.text_input("", 200, "collection name", callback=safe(self._new_collection), on_enter=True)
-                T.action("Create", "primary", safe(self._new_collection))
+        with dpg.group(horizontal=True, horizontal_spacing=28):
+            with dpg.child_window(width=LEFT_W, border=False, no_scrollbar=True, tag="drive_left") as lc:
+                dpg.bind_item_theme(lc, T.theme("bare"))
+                T.heading("Now")
+                with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit, borders_innerH=False) as tb:
+                    dpg.bind_item_theme(tb, T.theme("compact"))
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=118)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=LEFT_W - 130)
+                    for key, lab, tip in (
+                        ("src", "Setpoint from", "What is producing the setpoint: you (Position control), a playback, "
+                                                 "a waveform, the planner, a test or calibration. Nothing while the "
+                                                 "motor is off or in free-spin."),
+                        ("err", "Error", "Setpoint minus position: how far the wheel is from where it was told to be."),
+                        ("vel", "Speed", "Measured wheel speed."),
+                        ("cur", "Motor current", "Phase current the motor reports. The safety stop is at 30 A."),
+                        ("tq", "Torque command", "The torque the Teensy adds on top of the motor's own position "
+                                                 "loop (integral + feed-forward)."),
+                        ("gains", "Gains in use", "What the Teensy reports it is using. Change them on the Tune page."),
+                    ):
+                        with dpg.table_row():
+                            l = T.label(lab)
+                            T.tip(l, tip)
+                            self.tags[key] = dpg.add_text("—")
+                T.gap(18)
+                T.heading("Record")
+                self.tags["name"] = T.text_input("manual", LEFT_W - 4, "name")
+                T.tip(self.tags["name"], "Name for the next recording. The folder gets the time and kind in front of it.")
+                with dpg.group(horizontal=True):
+                    self.tags["rec"] = T.action("Record", "primary", safe(self._record), 130)
+                    g.bind(self.tags["rec"], self._rec_action, {
+                        "record": "Save telemetry, health and events from now until you press Stop recording. "
+                                  "It appears in Library.",
+                        "record_freespin": "Record the wheel as you move it by hand. Library can play it back on the "
+                                           "motor afterwards.",
+                        "stop_record": "Stop and save. It appears in Library."})
+                    self.tags["rec_info"] = T.label("")
+                T.gap(4)
+                with dpg.group(horizontal=True):
+                    T.label("Saves to")
+                    self.tags["coll"] = dpg.add_combo(self.app.store.collections() or ["default"],
+                                                      default_value=self.app.settings.collection,
+                                                      width=150, callback=safe(self._set_collection))
+                    T.tip(self.tags["coll"], "The collection (top-level folder) new recordings go into. "
+                                             "Each day gets its own folder inside it.")
+                    nb = T.action("New…", "quiet", None, tip_text="Make a new collection.")
+                    with dpg.popup(nb, mousebutton=dpg.mvMouseButton_Left, tag="new_coll_pop"):
+                        self.tags["new_coll"] = T.text_input("", 200, "collection name", callback=safe(self._new_collection),
+                                                             on_enter=True)
+                        T.action("Create", "primary", safe(self._new_collection))
+                self.tags["path"] = T.mono_text("", T.MUTED, small=True)
+                T.tip(self.tags["path"], "Folder the next recording will be written to, under the data folder.")
+                T.gap(18)
+                h = T.heading("Events")
+                T.tip(h, "What the Teensy and the laptop did lately: state changes, refusals with their reason, "
+                         "safety stops. The full list is on the Health page and in each recording.")
+                self.tags["events"] = [T.mono_text("", T.MUTED, small=True, wrap=LEFT_W - 6) for _ in range(7)]
+            with dpg.child_window(border=False, no_scrollbar=True, tag="drive_right") as rc:
+                dpg.bind_item_theme(rc, T.theme("bare"))
+                self.plot.build()
 
     # ---- callbacks ---------------------------------------------------------------------------------
     def _rec_action(self) -> str:
@@ -110,21 +119,8 @@ class DrivePanel:
         kind = "freespin" if self.c.live.ctrl_state == P.CS_FREESPIN else "manual"
         self.c.record_start(dpg.get_value(self.tags["name"]).strip() or "manual", kind=kind)
 
-    def _slider(self, sender, value):
-        r = self.c.slider(value)
-        if not r.ok:
-            toast(r.tooltip, "warn", 2)
-
-    def _set_slider(self, v):
-        dpg.set_value(self.tags["slider"], v)
-        self._slider(None, v)
-
     def set_slider(self, v):
-        self._set_slider(v)
-
-    def _more(self, sender, on):
-        dpg.configure_item("drive_plot2", show=on)
-        self._layout()
+        self.wheel.set(v)
 
     def _set_collection(self, sender, value):
         self.app.settings.collection = value
@@ -144,29 +140,29 @@ class DrivePanel:
     # ---- layout / refresh -----------------------------------------------------------------------------
     def on_resize(self, w, h):
         self._h = h
-        self._layout()
-
-    def _layout(self):
-        more = dpg.get_value(self.tags["more"]) if "more" in self.tags else False
-        avail = max(260, self._h - 300)
-        if more:
-            dpg.configure_item("drive_plot", height=int(avail * 0.62))
-            dpg.configure_item("drive_plot2", height=int(avail * 0.38) - 8)
-        else:
-            dpg.configure_item("drive_plot", height=avail)
+        self.wheel.on_resize(w)
+        body_h = h - 84
+        dpg.configure_item("drive_left", height=body_h)
+        dpg.configure_item("drive_right", width=max(400, w - LEFT_W - 28), height=body_h)
+        self.plot.on_resize(max(400, w - LEFT_W - 28), body_h)
 
     def refresh(self):
         live = self.c.live
         cfg, t = live.config, live.telemetry
-        if cfg and cfg.limits_valid:
-            dpg.configure_item(self.tags["slider"], min_value=cfg.limit_left_deg + 3, max_value=cfg.limit_right_deg - 3)
-            dpg.set_value(self.tags["limits"], f"End stops at {cfg.limit_left_deg:+.0f}° and {cfg.limit_right_deg:+.0f}°".replace("-", "−"))
-            dpg.configure_item(self.tags["limits"], color=T.MUTED)
-        elif cfg:
-            dpg.set_value(self.tags["limits"], "End stops not set. Run Calibrate first.")
-            dpg.configure_item(self.tags["limits"], color=T.WARN)
-        if live.ctrl_state != P.CS_HOLD and t:
-            dpg.set_value(self.tags["slider"], t.position_deg)
+        self.wheel.refresh()
+        self.plot.refresh()
+
+        src = self.c.setpoint_source() if t else ""
+        if t:
+            label = {"user": "you (Position control)"}.get(src, W.SOURCE.get(src, "").lower()) if src else "nothing (motor not servoing)"
+            dpg.set_value(self.tags["src"], label)
+            dpg.configure_item(self.tags["src"], color=T.SOURCE_COLOR.get(src, T.MUTED))
+            dpg.set_value(self.tags["err"], f"{W.signed(t.setpoint_deg - t.position_deg, 2)}°" if src else "—")
+            dpg.set_value(self.tags["vel"], f"{W.signed(t.velocity_deg_s, 0)}°/s")
+            dpg.set_value(self.tags["cur"], f"{W.signed(t.current_A)} A")
+            dpg.set_value(self.tags["tq"], f"{W.signed(t.torque_cmd_Nm, 2)} N·m")
+        if cfg:
+            dpg.set_value(self.tags["gains"], f"Kp {cfg.kp:.1f}   Kd {cfg.kd:.2f}   Ki {cfg.ki:.2f}")
 
         rs = self.app.recorder.status
         rec = self.app.recorder.active
@@ -174,32 +170,15 @@ class DrivePanel:
         dpg.bind_item_theme(self.tags["rec"], T.theme("btn_danger" if rec else "btn_primary"))
         if rec:
             el = int(rs["elapsed"])
-            dpg.set_value(self.tags["rec_info"], f"{rs['name']}, {el // 60}:{el % 60:02d}, {rs['samples']:,} samples")
+            dpg.set_value(self.tags["rec_info"], f"{el // 60}:{el % 60:02d}, {rs['samples']:,} samples")
         else:
-            dpg.set_value(self.tags["rec_info"], "Free-spin recordings can be played back from Library."
-                          if live.ctrl_state == P.CS_FREESPIN else "")
-        dpg.set_value(self.tags["path"], f"/{self.app.settings.collection}/{time.strftime('%Y-%m-%d')}/")
-
-        if self.ui._frame % 2 or not self.buf:
-            return
-        win = float(dpg.get_value(self.tags["win"]).split()[0])
-        now_t = self.buf[-1][0]
-        rows = [r for r in self.buf if r[0] >= now_t - win]
-        if len(rows) < 2:
-            return
-        tt = [r[0] - now_t for r in rows]
-        dpg.set_value("drive_setpoint", [tt, [r[1] for r in rows]])
-        dpg.set_value("drive_target", [tt, [r[2] for r in rows]])
-        dpg.set_value("drive_position", [tt, [r[3] for r in rows]])
-        dpg.set_axis_limits("drive_x", -win, 0)
-        fit = dpg.get_value(self.tags["fit"])
-        if fit:
-            dpg.fit_axis_data("drive_y")
-        if dpg.get_value(self.tags["more"]):
-            dpg.set_value("drive_velocity", [tt, [r[4] for r in rows]])
-            dpg.set_value("drive_current", [tt, [r[5] for r in rows]])
-            dpg.set_axis_limits("drive_x2", -win, 0)
-            if fit:
-                dpg.fit_axis_data("drive_y2")
-                if dpg.does_item_exist("drive_y3"):
-                    dpg.fit_axis_data("drive_y3")
+            dpg.set_value(self.tags["rec_info"], "hand motion" if live.ctrl_state == P.CS_FREESPIN and t else "")
+        dpg.set_value(self.tags["path"], f"{self.app.settings.collection}/{time.strftime('%Y-%m-%d')}/")
+        ev = self.ui.events
+        for i, line in enumerate(self.tags["events"]):
+            if i < len(ev):
+                ts, lvl, txt = ev[i]
+                dpg.set_value(line, f"{ts[:5]}  {txt}")
+                dpg.configure_item(line, color={"bad": T.BAD, "warn": T.WARN}.get(lvl, T.MUTED))
+            else:
+                dpg.set_value(line, "")

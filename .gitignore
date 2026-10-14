@@ -8,3 +8,4 @@ pc/*.egg-info/
 *.sqlite
 *.sqlite-journal
 .DS_Store
+_site/

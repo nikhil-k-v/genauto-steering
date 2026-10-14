@@ -46,6 +46,21 @@ static inline void active_limits(float& lo, float& hi) {
     }
 }
 
+// "<value><suffix>" into a 20-byte event text, integers only: no printf/float
+// formatting inside the ISR (newlib's float printf may allocate).  The PC shows it
+// next to the safety-stop name, e.g. "Motor current too high (31.2 A)".
+static void detail_num(char* out, float v, int decimals, const char* suffix) {
+    char tmp[12]; int n = 0;
+    int32_t scaled = (int32_t)lroundf(fabsf(v) * (decimals ? 10.f : 1.f));
+    if (v < 0) out[n++] = '-';
+    int k = 0;
+    do { tmp[k++] = (char)('0' + scaled % 10); scaled /= 10; } while (scaled && k < 11);
+    if (decimals && k == 1) tmp[k++] = '0';
+    while (k) { if (decimals && k == 1) out[n++] = '.'; out[n++] = tmp[--k]; }
+    for (const char* p = suffix; *p && n < 19; ++p) out[n++] = *p;
+    out[n] = 0;
+}
+
 static void trip(uint8_t code, const char* why) {
     if (g_ctl.cs == CS_TRIPPED) return;
     g_ctl.trip = code;
@@ -108,7 +123,7 @@ void control_set_gains(float kp, float kd, float ki, float tff) {
 }
 
 void control_set_limits(float left, float right) {
-    if (!(right > left + CAL_MIN_RANGE_DEG)) { push_event(EV_CMD_REJECTED, 0, "limits too narrow"); return; }
+    if (!(right > left + CAL_MIN_RANGE_DEG)) { push_event(EV_CMD_REJECTED, 0, "stops too close"); return; }
     noInterrupts();
     g_ctl.limit_left_deg = left; g_ctl.limit_right_deg = right;
     g_ctl.limits_valid = true; g_ctl.left_captured = g_ctl.right_captured = true;
@@ -140,10 +155,10 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
     const bool can_alive = g_motor.valid && (micros() - g_motor.t_us) < CAN_REPLY_TIMEOUT_MS * 1000u;
     switch (cmd) {
     case CMD_ENABLE:
-        if (g_ctl.cs == CS_TRIPPED)  return reject(why, "tripped: clear first");
-        if (!g_ctl.switch_armed)     return reject(why, "idle switch is IDLE");
+        if (g_ctl.cs == CS_TRIPPED)  return reject(why, "safety stop: reset");
+        if (!g_ctl.switch_armed)     return reject(why, "idle switch on");
         if (!can_alive)              return reject(why, "no motor CAN reply");
-        if (control_motor_enabled()) return reject(why, "already enabled");
+        if (control_motor_enabled()) return reject(why, "motor already on");
         noInterrupts(); arm_motor(CS_HOLD); interrupts();
         break;
     case CMD_DISABLE:
@@ -152,12 +167,12 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
         else can_motor_queue_special(SPECIAL_EXIT);
         break;
     case CMD_CLEAR_TRIP:
-        if (g_ctl.cs != CS_TRIPPED)  return reject(why, "no trip latched");
+        if (g_ctl.cs != CS_TRIPPED)  return reject(why, "no safety stop");
         noInterrupts(); g_ctl.trip = TRIP_NONE; g_ctl.calib = CAL_IDLE; set_state(CS_REST); interrupts();
         break;
     case CMD_SET_ZERO:
         if (!can_alive)              return reject(why, "no motor CAN reply");
-        if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST || g_ctl.cs == CS_CALIB) return reject(why, "busy: traj/test/cal");
+        if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST || g_ctl.cs == CS_CALIB) return reject(why, "busy, stop it first");
         noInterrupts();
         can_motor_queue_special(SPECIAL_ZERO);
         // limits were measured in the old frame: shift them to the new one
@@ -169,10 +184,10 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
         push_event(EV_ZERO_SET, 0);
         break;
     case CMD_FREESPIN_ON:
-        if (g_ctl.cs == CS_TRIPPED)  return reject(why, "tripped: clear first");
-        if (!g_ctl.switch_armed)     return reject(why, "idle switch is IDLE");
+        if (g_ctl.cs == CS_TRIPPED)  return reject(why, "safety stop: reset");
+        if (!g_ctl.switch_armed)     return reject(why, "idle switch on");
         if (!can_alive)              return reject(why, "no motor CAN reply");
-        if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST || g_ctl.cs == CS_CALIB) return reject(why, "busy: traj/test/cal");
+        if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST || g_ctl.cs == CS_CALIB) return reject(why, "busy, stop it first");
         noInterrupts();
         if (!control_motor_enabled()) arm_motor(CS_FREESPIN); else set_state(CS_FREESPIN);
         g_ctl.integral_Nm = 0;
@@ -186,17 +201,17 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
         interrupts();
         break;
     case CMD_HOLD_HERE:
-        if (!control_motor_enabled()) return reject(why, "motor not enabled");
+        if (!control_motor_enabled()) return reject(why, "motor is off");
         noInterrupts();
         g_ctl.sp_target_deg = control_pos_deg(); g_ctl.mode_req = MODE_HOLD;
         if (g_ctl.cs == CS_TRAJ) set_state(CS_HOLD);
         interrupts();
         break;
     case CMD_CALIB_START:
-        if (g_ctl.cs == CS_TRIPPED)  return reject(why, "tripped: clear first");
-        if (!g_ctl.switch_armed)     return reject(why, "idle switch is IDLE");
+        if (g_ctl.cs == CS_TRIPPED)  return reject(why, "safety stop: reset");
+        if (!g_ctl.switch_armed)     return reject(why, "idle switch on");
         if (!can_alive)              return reject(why, "no motor CAN reply");
-        if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST) return reject(why, "busy: traj/test");
+        if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST) return reject(why, "busy, stop it first");
         noInterrupts();
         if (!control_motor_enabled()) arm_motor(CS_CALIB); else set_state(CS_CALIB);
         g_ctl.calib = CAL_SEEK_LEFT; g_ctl.test_start_ms = ms_now();
@@ -223,11 +238,11 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
         break;
     }
     case CMD_GO_CENTER_ZERO:
-        if (g_ctl.cs == CS_TRIPPED)  return reject(why, "tripped: clear first");
-        if (!g_ctl.switch_armed)     return reject(why, "idle switch is IDLE");
+        if (g_ctl.cs == CS_TRIPPED)  return reject(why, "safety stop: reset");
+        if (!g_ctl.switch_armed)     return reject(why, "idle switch on");
         if (!can_alive)              return reject(why, "no motor CAN reply");
-        if (!(g_ctl.left_captured && g_ctl.right_captured)) return reject(why, "capture L and R first");
-        if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST) return reject(why, "busy: traj/test");
+        if (!(g_ctl.left_captured && g_ctl.right_captured)) return reject(why, "save L and R first");
+        if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST) return reject(why, "busy, stop it first");
         noInterrupts();
         if (!control_motor_enabled()) arm_motor(CS_CALIB); else set_state(CS_CALIB);
         g_ctl.calib = CAL_GO_CENTER; g_ctl.test_start_ms = ms_now();
@@ -236,12 +251,12 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
         push_event(EV_CALIB_STAGE, CAL_GO_CENTER);
         break;
     case CMD_SET_MOTOR_ID:
-        if (control_motor_enabled()) return reject(why, "disable first");
+        if (control_motor_enabled()) return reject(why, "motor must be off");
         if (arg < 1 || arg > 127)    return reject(why, "id out of range");
         g_motor_id = (uint8_t)arg;
         break;
     case CMD_CAN_SCAN:
-        if (control_motor_enabled()) return reject(why, "disable first");
+        if (control_motor_enabled()) return reject(why, "motor must be off");
         break;   // actual scan is performed by comms (blocking) after this returns true
     case CMD_REQ_CONFIG: case CMD_RESET_COUNTERS:
         break;
@@ -256,8 +271,8 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
 bool control_start_test(uint8_t type, float amp, float dur, float param, char* why) {
     why[0] = 0;
     if (!control_motor_enabled() || g_ctl.cs == CS_FREESPIN || g_ctl.cs == CS_CALIB)
-        return reject(why, "need HOLD state");
-    if (!g_ctl.zeroed)             return reject(why, "not zeroed");
+        return reject(why, "needs position ctrl");
+    if (!g_ctl.zeroed)             return reject(why, "0 deg not set");
     if (type != TEST_STEP && type != TEST_RELAY) return reject(why, "unknown test");
     noInterrupts();
     g_ctl.test_type = type; g_ctl.test_amp_deg = amp; g_ctl.test_dur_s = dur; g_ctl.test_param = param;
@@ -282,24 +297,27 @@ static void run_safety(float pos_deg, float vel_deg_s, float cur_A, uint32_t now
     static uint32_t stall_start = 0, cur_start = 0;
     if (!control_motor_enabled()) { stall_start = cur_start = 0; return; }
 
-    if (!g_ctl.switch_armed) { trip(TRIP_SWITCH_OPENED, "switch opened"); return; }
-    if (!motor_fresh)        { trip(TRIP_CAN_LOST, "motor reply lost"); return; }
+    char why[20];
+    if (!g_ctl.switch_armed) { trip(TRIP_SWITCH_OPENED, "pin 22 open"); return; }
+    if (!motor_fresh)        { trip(TRIP_CAN_LOST, ""); return; }
 
     const bool in_grace = (now_ms - g_ctl.enable_ms) < ENABLE_GRACE_MS;
     if (in_grace) { stall_start = cur_start = 0; return; }
 
-    if (fabsf(vel_deg_s) > VELOCITY_CUTOFF_DEG_S) { trip(TRIP_VELOCITY, "overspeed"); return; }
+    if (fabsf(vel_deg_s) > VELOCITY_CUTOFF_DEG_S) { detail_num(why, vel_deg_s, 0, " deg/s"); trip(TRIP_VELOCITY, why); return; }
 
     if (fabsf(cur_A) > CURRENT_CUTOFF_A) {
         if (!cur_start) cur_start = now_ms;
-        else if (now_ms - cur_start > CURRENT_TIME_MS) { trip(TRIP_OVERCURRENT, "overcurrent"); return; }
+        else if (now_ms - cur_start > CURRENT_TIME_MS) { detail_num(why, cur_A, 1, " A"); trip(TRIP_OVERCURRENT, why); return; }
     } else cur_start = 0;
 
     // Calibration is the act of finding the stops, so the limit trip is off there.
     if (g_ctl.cs != CS_CALIB) {
         float lo, hi; active_limits(lo, hi);
         if (pos_deg < lo - LIMIT_TRIP_OVERSHOOT_DEG || pos_deg > hi + LIMIT_TRIP_OVERSHOOT_DEG) {
-            trip(TRIP_LIMIT, "past end stop"); return;
+            const bool left = pos_deg < lo;
+            detail_num(why, left ? lo - pos_deg : pos_deg - hi, 0, left ? " deg past L" : " deg past R");
+            trip(TRIP_LIMIT, why); return;
         }
     }
 
@@ -307,17 +325,19 @@ static void run_safety(float pos_deg, float vel_deg_s, float cur_A, uint32_t now
     if (g_ctl.cs == CS_HOLD || g_ctl.cs == CS_TRAJ) {
         if (fabsf(g_ctl.sp_cmd_deg - pos_deg) > STALL_ERROR_DEG) {
             if (!stall_start) stall_start = now_ms;
-            else if (now_ms - stall_start > STALL_TIME_MS) { trip(TRIP_STALL, "stalled"); return; }
+            else if (now_ms - stall_start > STALL_TIME_MS) {
+                detail_num(why, g_ctl.sp_cmd_deg - pos_deg, 0, " deg off target"); trip(TRIP_STALL, why); return;
+            }
         } else stall_start = 0;
     } else stall_start = 0;
 
     // PC in control and silent?  TRAJ -> trip (the setpoint source died);
     // TEST runs autonomously, so just end it and hold.
     if (g_ctl.pc_hb_last_ms && (now_ms - g_ctl.pc_hb_last_ms) > PC_CONTROL_LOSS_MS) {
-        if (g_ctl.cs == CS_TRAJ) { trip(TRIP_PC_LINK_LOST, "PC silent"); return; }
+        if (g_ctl.cs == CS_TRAJ) { detail_num(why, (float)(now_ms - g_ctl.pc_hb_last_ms), 0, " ms silent"); trip(TRIP_PC_LINK_LOST, why); return; }
         if (g_ctl.cs == CS_TEST) {
             g_ctl.test_type = TEST_NONE; g_ctl.sp_target_deg = g_ctl.sp_cmd_deg;
-            push_event(EV_WARNING, 0, "test ended: PC lost"); set_state(CS_HOLD);
+            push_event(EV_WARNING, 0, "test ended: no PC"); set_state(CS_HOLD);
         }
     }
 }
@@ -365,7 +385,7 @@ static void run_calibration(float pos_deg, float vel_deg_s, uint32_t now_ms, flo
             t_Nm = dir * fminf(mag + CAL_CONFIRM_BUMP_NM, MOTOR_T_MAX_NM * 0.5f);
             advance(g_ctl.calib == CAL_SEEK_LEFT ? CAL_CONFIRM_LEFT : CAL_CONFIRM_RIGHT);
         }
-        if (now_ms - stage_ms > CAL_MAX_SEEK_MS) trip(TRIP_CALIB_FAILED, "seek timeout");
+        if (now_ms - stage_ms > CAL_MAX_SEEK_MS) trip(TRIP_CALIB_FAILED, "no stop found");
         break;
     }
     case CAL_CONFIRM_LEFT:
@@ -397,7 +417,7 @@ static void run_calibration(float pos_deg, float vel_deg_s, uint32_t now_ms, flo
         g_ctl.sp_cmd_deg += clampf(err, -step, step);
         kp = CAL_CENTER_KP; kd = CAL_CENTER_KD; t_Nm = 0;
         if (fabsf(err) < 0.01f) advance(CAL_SETTLE);
-        if (now_ms - stage_ms > CAL_MAX_SEEK_MS) trip(TRIP_CALIB_FAILED, "center timeout");
+        if (now_ms - stage_ms > CAL_MAX_SEEK_MS) trip(TRIP_CALIB_FAILED, "middle not reached");
         break;
     }
     case CAL_SETTLE: {
@@ -417,7 +437,7 @@ static void run_calibration(float pos_deg, float vel_deg_s, uint32_t now_ms, flo
                 set_state(CS_HOLD);
             }
         } else stage_ms = now_ms;   // not settled: restart the settle timer
-        if (now_ms - g_ctl.test_start_ms > 2 * CAL_MAX_SEEK_MS) trip(TRIP_CALIB_FAILED, "settle timeout");
+        if (now_ms - g_ctl.test_start_ms > 2 * CAL_MAX_SEEK_MS) trip(TRIP_CALIB_FAILED, "did not settle");
         break;
     }
     default: break;

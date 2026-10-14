@@ -149,10 +149,10 @@ class SimTeensy:
         def rej(txt):
             self.event(P.EV_CMD_REJECTED, cmd, txt); return False
         if cmd == P.CMD_ENABLE:
-            if self.cs == P.CS_TRIPPED: return rej("tripped: clear first")
-            if not self.f.switch_armed: return rej("idle switch is IDLE")
+            if self.cs == P.CS_TRIPPED: return rej("safety stop: reset")
+            if not self.f.switch_armed: return rej("idle switch on")
             if not alive: return rej("no motor CAN reply")
-            if self.enabled: return rej("already enabled")
+            if self.enabled: return rej("motor already on")
             self.arm(P.CS_HOLD)
         elif cmd == P.CMD_DISABLE:
             if self.cs == P.CS_TRIPPED: self.event(P.EV_CMD_ACCEPTED, cmd); return True
@@ -160,35 +160,35 @@ class SimTeensy:
             if self.cs == P.CS_CALIB: self.calib = P.CAL_ABORTED
             self.set_state(P.CS_REST)
         elif cmd == P.CMD_CLEAR_TRIP:
-            if self.cs != P.CS_TRIPPED: return rej("no trip latched")
+            if self.cs != P.CS_TRIPPED: return rej("no safety stop")
             self.trip = P.TRIP_NONE; self.calib = P.CAL_IDLE; self.set_state(P.CS_REST)
         elif cmd == P.CMD_SET_ZERO:
             if not alive: return rej("no motor CAN reply")
-            if self.cs in (P.CS_TRAJ, P.CS_TEST, P.CS_CALIB): return rej("busy: traj/test/cal")
+            if self.cs in (P.CS_TRAJ, P.CS_TEST, P.CS_CALIB): return rej("busy, stop it first")
             p = self.rep_pos()
             self._zero_offset = self.m.pos; self._soft_offset = 0.0
             if self.limits_valid: self.limit_l -= p; self.limit_r -= p
             self.sp_cmd = self.sp_target = 0.0; self.integral = 0.0; self.zeroed = True; self.enable_t = self.t
             self.event(P.EV_ZERO_SET)
         elif cmd == P.CMD_FREESPIN_ON:
-            if self.cs == P.CS_TRIPPED: return rej("tripped: clear first")
-            if not self.f.switch_armed: return rej("idle switch is IDLE")
+            if self.cs == P.CS_TRIPPED: return rej("safety stop: reset")
+            if not self.f.switch_armed: return rej("idle switch on")
             if not alive: return rej("no motor CAN reply")
-            if self.cs in (P.CS_TRAJ, P.CS_TEST, P.CS_CALIB): return rej("busy: traj/test/cal")
+            if self.cs in (P.CS_TRAJ, P.CS_TEST, P.CS_CALIB): return rej("busy, stop it first")
             if not self.enabled: self.arm(P.CS_FREESPIN)
             else: self.set_state(P.CS_FREESPIN)
         elif cmd == P.CMD_FREESPIN_OFF:
             if self.cs != P.CS_FREESPIN: return rej("not in free-spin")
             self.sp_cmd = self.sp_target = self.rep_pos(); self.enable_t = self.t; self.set_state(P.CS_HOLD)
         elif cmd == P.CMD_HOLD_HERE:
-            if not self.enabled: return rej("motor not enabled")
+            if not self.enabled: return rej("motor is off")
             self.sp_target = self.rep_pos(); self.mode_req = P.MODE_HOLD
             if self.cs == P.CS_TRAJ: self.set_state(P.CS_HOLD)
         elif cmd == P.CMD_CALIB_START:
-            if self.cs == P.CS_TRIPPED: return rej("tripped: clear first")
-            if not self.f.switch_armed: return rej("idle switch is IDLE")
+            if self.cs == P.CS_TRIPPED: return rej("safety stop: reset")
+            if not self.f.switch_armed: return rej("idle switch on")
             if not alive: return rej("no motor CAN reply")
-            if self.cs in (P.CS_TRAJ, P.CS_TEST): return rej("busy: traj/test")
+            if self.cs in (P.CS_TRAJ, P.CS_TEST): return rej("busy, stop it first")
             if not self.enabled: self.arm(P.CS_CALIB)
             else: self.set_state(P.CS_CALIB)
             self.calib = P.CAL_SEEK_LEFT; self._cal_stage_t = self.t; self._cal_torque = -1.0
@@ -204,10 +204,10 @@ class SimTeensy:
             self.limits_valid = self.left_cap and self.right_cap and (self.limit_r - self.limit_l) > 60
             if self.limits_valid: self.event(P.EV_LIMITS_SET)
         elif cmd == P.CMD_GO_CENTER_ZERO:
-            if self.cs == P.CS_TRIPPED: return rej("tripped: clear first")
-            if not self.f.switch_armed: return rej("idle switch is IDLE")
+            if self.cs == P.CS_TRIPPED: return rej("safety stop: reset")
+            if not self.f.switch_armed: return rej("idle switch on")
             if not alive: return rej("no motor CAN reply")
-            if not (self.left_cap and self.right_cap): return rej("capture L and R first")
+            if not (self.left_cap and self.right_cap): return rej("save L and R first")
             if not self.enabled: self.arm(P.CS_CALIB)
             else: self.set_state(P.CS_CALIB)
             self.calib = P.CAL_GO_CENTER; self._cal_stage_t = self.t; self.sp_cmd = self.rep_pos()
@@ -223,9 +223,9 @@ class SimTeensy:
 
     def start_test(self, tt, amp, dur, param):
         if not self.enabled or self.cs in (P.CS_FREESPIN, P.CS_CALIB):
-            self.event(P.EV_CMD_REJECTED, P.PKT_TEST_START, "need HOLD state"); return
+            self.event(P.EV_CMD_REJECTED, P.PKT_TEST_START, "needs position ctrl"); return
         if not self.zeroed:
-            self.event(P.EV_CMD_REJECTED, P.PKT_TEST_START, "not zeroed"); return
+            self.event(P.EV_CMD_REJECTED, P.PKT_TEST_START, "0 deg not set"); return
         self.test_type, self.test_amp, self.test_dur, self.test_param = tt, amp, dur, param
         self.test_t0 = self.t; self.test_base = self.sp_cmd; self.relay_sign = 1; self.integral = 0.0
         self.set_state(P.CS_TEST)
@@ -237,17 +237,17 @@ class SimTeensy:
         pos, vel = self.rep_pos(), self.m.vel
         # safety
         if self.enabled:
-            if not self.f.switch_armed: self.do_trip(P.TRIP_SWITCH_OPENED, "switch opened")
-            elif not self.f.motor_power: self.do_trip(P.TRIP_CAN_LOST, "motor reply lost")
+            if not self.f.switch_armed: self.do_trip(P.TRIP_SWITCH_OPENED, "pin 22 open")
+            elif not self.f.motor_power: self.do_trip(P.TRIP_CAN_LOST, "")
             elif self.t - self.enable_t > 0.25:
-                if abs(vel) > 1430: self.do_trip(P.TRIP_VELOCITY, "overspeed")
+                if abs(vel) > 1430: self.do_trip(P.TRIP_VELOCITY, f"{vel:.0f} deg/s")
                 lo, hi = self.limits()
-                if self.cs != P.CS_CALIB and (pos < lo - 15 or pos > hi + 15): self.do_trip(P.TRIP_LIMIT, "past end stop")
+                if self.cs != P.CS_CALIB and (pos < lo - 15 or pos > hi + 15): self.do_trip(P.TRIP_LIMIT, f"{(lo - pos) if pos < lo else (pos - hi):.0f} deg past {'L' if pos < lo else 'R'}")
                 if self.pc_hb_last and self.t - self.pc_hb_last > 0.6:
-                    if self.cs == P.CS_TRAJ: self.do_trip(P.TRIP_PC_LINK_LOST, "PC silent")
+                    if self.cs == P.CS_TRAJ: self.do_trip(P.TRIP_PC_LINK_LOST, f"{(self.t - self.pc_hb_last) * 1000:.0f} ms silent")
                     elif self.cs == P.CS_TEST:
                         self.test_type = P.TEST_NONE; self.sp_target = self.sp_cmd
-                        self.event(P.EV_WARNING, 0, "test ended: PC lost"); self.set_state(P.CS_HOLD)
+                        self.event(P.EV_WARNING, 0, "test ended: no PC"); self.set_state(P.CS_HOLD)
         # mode resolution
         if self.cs in (P.CS_HOLD, P.CS_TRAJ):
             sp_fresh = self.sp_last and (self.t - self.sp_last) < 0.25
@@ -327,7 +327,7 @@ class SimTeensy:
             if self._cal_still >= 0.6 and mag >= 2.5:
                 self._still_pos = pos; self._cal_torque = d * (mag + 1.0)
                 adv(P.CAL_CONFIRM_LEFT if st == P.CAL_SEEK_LEFT else P.CAL_CONFIRM_RIGHT)
-            if self.t - self._cal_stage_t > 15: self.do_trip(P.TRIP_CALIB_FAILED, "seek timeout")
+            if self.t - self._cal_stage_t > 15: self.do_trip(P.TRIP_CALIB_FAILED, "no stop found")
         elif st in (P.CAL_CONFIRM_LEFT, P.CAL_CONFIRM_RIGHT):
             left = st == P.CAL_CONFIRM_LEFT
             self.m.step(dt, self.m.pos, 0, 0, 0, self._cal_torque)

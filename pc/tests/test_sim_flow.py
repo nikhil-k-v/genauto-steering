@@ -112,7 +112,8 @@ def test_firmware_rejection_is_surfaced(app):
     # bypass PC gating to prove the firmware refuses with a reason
     app.link.send(P.test_start(P.TEST_STEP, 10, 1, 1))
     wait(lambda: "refused" in app.controller.live.last_rejection, what="rejection event")
-    assert "HOLD" in app.controller.live.last_rejection
+    rej = app.controller.live.last_rejection
+    assert "start the test" in rej and "position ctrl" in rej, rej
 
 
 def test_store_reindex(app):
@@ -123,3 +124,38 @@ def test_store_reindex(app):
     assert app.store.get(r.uid).samples > 0
     n = app.store.reindex()
     assert n == 1 and app.store.get(r.uid).name == "manual-1"
+
+
+def test_reasons_are_plain_and_name_the_check(app):
+    """Refusals read as sentences about the physical problem, with the check id at the end -
+    never an internal state name ("HOLD", "BLOCKED", "trip")."""
+    connect(app, SimFaults(switch_armed=False))
+    wait(lambda: app.controller.live.tree.nodes["S1"].state == P.HS_BLOCKED, what="S1 blocked")
+    r = app.controller.can("enable")
+    text = " ".join(r.reasons)
+    assert "Idle switch on" in text and "[S1]" in text, text
+    for word in ("HOLD", "BLOCKED", "FAIL", "trip", "IDLE"):
+        assert word not in text, (word, text)
+    r = app.controller.can("slider")
+    assert any("Position control" in x for x in r.reasons), r.reasons
+
+
+def test_setpoint_source_follows_the_mode(app):
+    t = connect(app)
+    c = app.controller
+    assert c.setpoint_source() == ""                              # motor off: no setpoint
+    c.enable()
+    wait(lambda: c.live.ctrl_state == P.CS_HOLD, what="HOLD")
+    assert c.setpoint_source() == "user"
+    c.external_setpoint(c.live.position) if c.can("external_stream").ok else None
+
+
+def test_trip_detail_carries_the_measured_value(app):
+    t = connect(app)
+    app.controller.enable()
+    wait(lambda: app.controller.live.ctrl_state == P.CS_HOLD, what="HOLD")
+    t.sim.f.switch_armed = False
+    wait(lambda: app.controller.live.ctrl_state == P.CS_TRIPPED, what="trip")
+    from steering import words as W
+    assert app.controller.live.trip_text == "pin 22 open"
+    assert W.trip_line(P.TRIP_SWITCH_OPENED, app.controller.live.trip_text) == "Idle switch turned on while running (pin 22 open)"

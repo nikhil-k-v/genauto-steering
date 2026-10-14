@@ -110,3 +110,33 @@ def test_web_api(app):
     assert any(x["id"] == "HEALTH" for x in docs["docs"])
     assert "<h1" in get("/api/docs/HEALTH")["html"]
     assert urllib.request.urlopen(base + "/diagrams/01_system_overview.svg", timeout=5).status == 200
+
+
+def test_wifi_front_door(app):
+    """The GitHub Pages copy may call the hub on localhost (CORS + private-network preflight), a random
+    site may not open the websocket, and /api/info lists the addresses other devices can use."""
+    import urllib.request
+    import websockets
+    port = app.settings.server_port
+    base = f"http://127.0.0.1:{port}"
+    info = json.loads(urllib.request.urlopen(base + "/api/info", timeout=5).read())
+    assert info["urls"]["local"] == f"http://localhost:{port}/"
+    assert info["urls"]["pages_link"].startswith(app.settings.pages_url.rstrip("/") + "/?hub=")
+    pages = "https://nikhil-k-v.github.io"
+    req = urllib.request.Request(base + "/api/health", method="OPTIONS", headers={
+        "Origin": pages, "Access-Control-Request-Method": "GET", "Access-Control-Request-Private-Network": "true"})
+    r = urllib.request.urlopen(req, timeout=5)
+    assert r.headers["access-control-allow-origin"] == pages
+    assert r.headers["access-control-allow-private-network"] == "true"
+    r = urllib.request.urlopen(urllib.request.Request(base + "/api/health", headers={"Origin": "https://evil.example"}), timeout=5)
+    assert r.headers.get("access-control-allow-origin") is None
+
+    async def ws(origin):
+        try:
+            async with websockets.connect(f"ws://127.0.0.1:{port}/ws", additional_headers={"Origin": origin}) as w:
+                return json.loads(await asyncio.wait_for(w.recv(), timeout=3))["type"]
+        except Exception as e:
+            return type(e).__name__
+    assert asyncio.run(ws(pages)) == "hello"
+    assert asyncio.run(ws(f"http://127.0.0.1:{port}")) == "hello"
+    assert asyncio.run(ws("https://evil.example")) != "hello"

@@ -23,6 +23,11 @@ class Settings:
     theme: str = "dark"
     gains: dict = field(default_factory=lambda: {"kp": 30.0, "kd": 2.0, "ki": 0.0, "tff": 0.0})
     show_generators: bool = False
+    plot_speed_open: bool = True
+    plot_torque_open: bool = True
+    # the hub's public front door: a GitHub Pages copy of the web UI that connects to this laptop
+    pages_url: str = "https://nikhil-k-v.github.io/genauto-steering/"
+    mdns_name: str = "genauto"          # advertised as genauto.local on the Wi-Fi when zeroconf is installed
     path: str = ""
 
     @classmethod

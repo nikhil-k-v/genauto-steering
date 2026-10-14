@@ -31,8 +31,20 @@ Read first: `README.md`, then `docs/ARCHITECTURE.md`, `docs/HEALTH.md`, `docs/SA
 * Units in names (`_deg`, `_Nm`, `_ms`). Degrees at the PC/UI boundary, radians only inside `can_motor`.
 * Firmware events carry a ≤19-char reason; the UI shows them verbatim — write them for a human.
 * Prefer editing `config.h` / `model.py` tables over adding code paths.
-* UI look: colour means status only (green/amber/red/grey); everything else is ink on paper. Healthy is quiet,
-  broken is loud. Use `ui/theme.py` helpers (`T.action(kind=primary|secondary|quiet|danger)`, `T.toggle`,
-  `T.number`, `T.heading`, `T.label`, `T.mono_text` for machine text only). No new fonts or colours.
+* Words: every user-facing name lives in `pc/steering/words.py`. Name modes by what the motor does
+  ("Position control", never "Hold"); a latched trip is a "safety stop" that is "reset"; buttons say exactly
+  what happens ("Move to 0°" moves, "Set 0° at the current angle" sets). A problem is a sentence about the
+  physical cause with its number ("Motor current 24 A, close to the cut-out"), node id last - never just
+  "blocked"/"FAIL"/"trip". No captions that restate a name; explain purpose in a tooltip instead.
+* Every control gets a tooltip (`T.tip`, or the hint in `GateBinder.bind`), shown after `T.TIP_DELAY_S`.
+* UI look: status colours are colour-blind safe (blue-green / amber / vermillion) and status marks also differ
+  by shape (`T.status_mark`: ● ok, ▲ not ready, ■ fault, ○ no data). Healthy is quiet, broken is loud.
+  Plot lines (`ui/lines.py`, `T.SERIES`): solid = measured, dashed = setpoint, dotted = requested; colour =
+  source (dark green you, pastel green playback/waveform, orange planner, grey test/calibration) or quantity
+  (blue position/speed, vermillion torque/current). Plots sit in a darker well and use DejaVu Sans.
+  Use `ui/theme.py` helpers (`T.action(kind=primary|secondary|quiet|danger)`, `T.toggle`, `T.number`,
+  `T.heading`, `T.label`, `T.mono_text` for machine text only). No new fonts or colours beyond these.
+* Web: `web/index.html` is served by the hub AND published to GitHub Pages (`pc/tools/build_pages.py`), so
+  every asset path is relative and every API call goes through `api()` (HUB base URL).
 * Diagrams are generated: edit `docs/diagrams/gen.py`, run `python docs/diagrams/gen.py --png /tmp/x` and look
   at every PNG before committing (ports are automatic; pin with `pa=`/`pb=` when a route needs it).

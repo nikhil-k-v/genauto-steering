@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Steering capture</title>
 <style>
-  @font-face { font-family: "Barlow"; font-weight: 400; src: url(/fonts/Barlow-Regular.woff2) format("woff2"); }
-  @font-face { font-family: "Barlow"; font-weight: 600; src: url(/fonts/Barlow-SemiBold.woff2) format("woff2"); }
-  @font-face { font-family: "Barlow Semi Condensed"; font-weight: 500; src: url(/fonts/BarlowSemiCondensed-Medium.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow"; font-weight: 400; src: url(fonts/Barlow-Regular.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow"; font-weight: 600; src: url(fonts/Barlow-SemiBold.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow Semi Condensed"; font-weight: 500; src: url(fonts/BarlowSemiCondensed-Medium.woff2) format("woff2"); }
   /* same system as the laptop app: colour means status, everything else is ink on paper */
   :root { --paper:#f4f5f6; --surface:#fff; --ink:#1b2129; --muted:#68717c; --faint:#a3aab3; --rule:#d2d6db;
-          --ok:#2f8a57; --warn:#b5750e; --bad:#c2362d; }
+          --ok:#008062; --warn:#c47e00; --bad:#cd3e16; }   /* colour-blind safe; shapes below too */
   * { box-sizing: border-box; }
   body { margin:0; background:var(--paper); color:var(--ink); font: 16px/1.45 "Barlow", -apple-system, system-ui, sans-serif;
          font-variant-numeric: tabular-nums; padding: 14px 16px calc(18px + env(safe-area-inset-bottom)); }
@@ -20,7 +20,9 @@
   .grp { display:grid; grid-template-columns: 1fr 1fr; gap:4px 14px; }
   .g { display:flex; align-items:center; gap:8px; }
   .g i { width:10px; height:10px; border-radius:50%; display:inline-block; }
-  .g.ok i { background: var(--ok); } .g.blk i { background: var(--warn); } .g.bad i { background: var(--bad); }
+  .g.ok i { background: var(--ok); }
+  .g.blk i { background: var(--warn); border-radius: 0; clip-path: polygon(50% 0, 100% 100%, 0 100%); width: 12px; height: 11px; }
+  .g.bad i { background: var(--bad); border-radius: 1px; }
   .g.unk i { border: 1.6px solid var(--faint); }
   .big { font-family: "Barlow Semi Condensed", "Barlow", sans-serif; font-size: 44px; font-weight: 500; line-height: 1.05; }
   .dim { color: var(--muted); font-size: 14px; }
@@ -52,7 +54,7 @@
 
 <div class="card">
   <div class="row" style="justify-content:space-between">
-    <div><div id="cs" style="font-weight:600;font-size:20px">—</div><div class="big" id="pos">—</div><div class="dim">target <span id="sp">—</span></div></div>
+    <div><div id="cs" style="font-weight:600;font-size:20px">—</div><div class="big" id="pos">—</div><div class="dim">setpoint <span id="sp">—</span></div></div>
   </div>
 </div>
 
@@ -114,7 +116,7 @@ function handle(m) {
   } else if (m.type === "hello") { setRecording(m.recording); }
   else if (m.type === "recording") { setRecording(m); }
   else if (m.type === "telemetry") {
-    const names = ["Resting", "Holding", "Following", "Testing", "Free-spin", "Calibrating", "Tripped"];
+    const names = ["Motor off", "Position control", "Following setpoints", "Running a test", "Free-spin", "Calibrating", "Safety stop"];
     const sg = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1) + "°";
     $("cs").textContent = names[m.cs] || m.cs; $("cs").style.color = m.cs === 6 ? "var(--bad)" : "";
     $("pos").textContent = sg(m.pos); $("sp").textContent = sg(m.sp);
@@ -122,7 +124,7 @@ function handle(m) {
     const cls = {0: "unk", 1: "ok", 2: "blk", 3: "bad"};
     const title = {C: "Link", S: "Safety", M: "Motor", T: "Teensy", D: "Data"};
     $("groups").innerHTML = ["C", "S", "M", "T", "D"].map(g => `<div class="g ${cls[m.groups[g]]}"><i></i>${title[g]}</div>`).join("");
-    $("bad").innerHTML = m.bad.filter(b => b.s !== 1).slice(0, 6).map(b => `<li><b>${b.id}</b> ${["unknown", "ok", "blocked", "failed"][b.s]}: ${b.r}</li>`).join("");
+    $("bad").innerHTML = m.bad.filter(b => b.s !== 1).slice(0, 6).map(b => `<li>${b.r || ["no data", "ok", "not ready", "fault"][b.s]} <b>${b.id}</b></li>`).join("");
   } else if (m.type === "cmd_result") { $("cmdres").textContent = m.ok ? "ok" : ("refused: " + m.error); }
 }
 

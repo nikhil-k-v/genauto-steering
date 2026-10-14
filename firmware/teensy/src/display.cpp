@@ -31,27 +31,28 @@ bool display_begin() {
 
 static const char* state_name(uint8_t cs) {
     switch (cs) {
-    case CS_REST: return "REST"; case CS_HOLD: return "HOLD"; case CS_TRAJ: return "TRAJ";
-    case CS_TEST: return "TEST"; case CS_FREESPIN: return "FREE";
-    case CS_CALIB: return "CAL"; case CS_TRIPPED: return "TRIP"; default: return "?";
+    // same words as the laptop app (pc/steering/words.py), shortened to 8 chars
+    case CS_REST: return "OFF"; case CS_HOLD: return "POS CTRL"; case CS_TRAJ: return "FOLLOW";
+    case CS_TEST: return "TEST"; case CS_FREESPIN: return "FREESPIN";
+    case CS_CALIB: return "CALIB"; case CS_TRIPPED: return "STOPPED"; default: return "?";
     }
 }
 static const char* trip_name(uint8_t t) {
     switch (t) {
-    case TRIP_VELOCITY: return "OVERSPEED"; case TRIP_STALL: return "STALL";
-    case TRIP_OVERCURRENT: return "OVERCURR"; case TRIP_SWITCH_OPENED: return "SW OPENED";
-    case TRIP_PC_LINK_LOST: return "PC LOST"; case TRIP_CAN_LOST: return "CAN LOST";
-    case TRIP_LIMIT: return "PAST STOP"; case TRIP_CALIB_FAILED: return "CAL FAIL";
-    case TRIP_PC_SHUTDOWN: return "PC EXIT"; case TRIP_ISR_OVERRUN: return "LOOP SLOW";
+    case TRIP_VELOCITY: return "TOO FAST"; case TRIP_STALL: return "WHEEL STUCK";
+    case TRIP_OVERCURRENT: return "CURRENT HIGH"; case TRIP_SWITCH_OPENED: return "IDLE SW ON";
+    case TRIP_PC_LINK_LOST: return "PC SILENT"; case TRIP_CAN_LOST: return "MOTOR NO CAN";
+    case TRIP_LIMIT: return "PAST STOP"; case TRIP_CALIB_FAILED: return "CAL FAILED";
+    case TRIP_PC_SHUTDOWN: return "PC CLOSED"; case TRIP_ISR_OVERRUN: return "LOOP SLOW";
     default: return "";
     }
 }
 static const char* cal_name(uint8_t c) {
     switch (c) {
-    case CAL_SEEK_LEFT: return "SEEK L"; case CAL_CONFIRM_LEFT: return "CONF L";
-    case CAL_SEEK_RIGHT: return "SEEK R"; case CAL_CONFIRM_RIGHT: return "CONF R";
-    case CAL_GO_CENTER: return "CENTER"; case CAL_SETTLE: return "SETTLE";
-    case CAL_DONE: return "CAL OK"; case CAL_ABORTED: return "CAL ABRT"; case CAL_FAILED: return "CAL FAIL";
+    case CAL_SEEK_LEFT: return "find L stop"; case CAL_CONFIRM_LEFT: return "check L stop";
+    case CAL_SEEK_RIGHT: return "find R stop"; case CAL_CONFIRM_RIGHT: return "check R stop";
+    case CAL_GO_CENTER: return "to middle"; case CAL_SETTLE: return "set 0 deg";
+    case CAL_DONE: return "done"; case CAL_ABORTED: return "stopped"; case CAL_FAILED: return "failed";
     default: return "";
     }
 }
@@ -117,9 +118,12 @@ void display_update(const HealthSnapshot& s) {
     if (g_ctl.cs == CS_TRIPPED)      snprintf(line, sizeof line, "%s", trip_name(g_ctl.trip));
     else if (g_ctl.cs == CS_CALIB)   snprintf(line, sizeof line, "%s", cal_name(g_ctl.calib));
     else if (g_ctl.cs == CS_FREESPIN) snprintf(line, sizeof line, "zero torque");
-    else                             snprintf(line, sizeof line, "%s%s", g_ctl.zeroed ? "Z " : "nz ", g_ctl.limits_valid ? "LIM" : "nolim");
+    else if (g_ctl.zeroed && g_ctl.limits_valid) snprintf(line, sizeof line, "calibrated");
+    else if (g_ctl.zeroed)                       snprintf(line, sizeof line, "no stops");
+    else if (g_ctl.limits_valid)                 snprintf(line, sizeof line, "no 0 deg");
+    else                                         snprintf(line, sizeof line, "not calib.");
     u8g2.drawStr(0, 36, line);
-    snprintf(line, sizeof line, "SW:%s", g_ctl.switch_armed ? "ARM" : "IDLE");
+    snprintf(line, sizeof line, "%s", g_ctl.switch_armed ? "idle sw off" : "IDLE SW ON");
     u8g2.drawStr(0, 45, line);
     snprintf(line, sizeof line, "P%.0f D%.1f I%.1f", (double)g_ctl.kp, (double)g_ctl.kd, (double)g_ctl.ki);
     u8g2.drawStr(0, 54, line);

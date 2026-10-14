@@ -4,12 +4,13 @@ ui/rail.py - the system rail on the left of the window.
     ┌──────────────────────┐
     │ [port      ][Connect]│
     │                      │
-    │ Holding              │   controller state, in words
-    │ Holding the angle.   │   what it means / why it tripped
+    │ Position control     │   what the motor is doing, in words
+    │                      │   (a second line only when it adds something:
+    │                      │    why it stopped, what is playing, refusals)
     │ +25.5°               │   the wheel, big
-    │ target +25.0°        │
+    │ setpoint +25.0°      │
     │                      │
-    │ [ Hold ][Free-spin ] │   mode (segmented: one is always the current one)
+    │ [Position control][Free-spin] │   mode (segmented: the current one is filled)
     │ [     Stop motor   ] │   red only when there is something to stop
     │                      │
     │ ● Laptop             │   the signal chain, drawn as one line:
@@ -17,7 +18,7 @@ ui/rail.py - the system rail on the left of the window.
     │ ● Teensy    1000 Hz  │   so a break shows exactly where it is
     │ │ CAN       1000 Hz  │
     │ ● Motor      −0.2 A  │
-    │   M5 encoder frozen  │   <- only rows that are not OK get a reason line
+    │   Motor angle frozen │   <- only rows that are not OK get a reason line
     │                      │
     │ ● Safety      armed  │
     │ ○ Web hub       off  │
@@ -37,6 +38,7 @@ from typing import Dict, Optional, Tuple
 import dearpygui.dearpygui as dpg
 
 from .. import protocol as P
+from .. import words as W
 from ..health.model import NODE_BY_ID, RANK
 from ..link import list_serial_ports
 from . import theme as T
@@ -62,15 +64,8 @@ ROWS = [
 ROW_OF: Dict[str, str] = {nid: r[0] for r in ROWS if r for nid in r[2]}
 ROW_DEF = {r[0]: r for r in ROWS if r}
 
-STATE_LINE = {
-    P.CS_REST: "Motor off. The wheel turns freely.",
-    P.CS_HOLD: "Holding the commanded angle.",
-    P.CS_TRAJ: "Following a stream from the laptop.",
-    P.CS_TEST: "Running a tuning test on the Teensy.",
-    P.CS_FREESPIN: "No torque. Turn the wheel by hand.",
-    P.CS_CALIB: "Finding the end stops.",
-    P.CS_TRIPPED: "Tripped.",
-}
+# A state needs no caption: its name says it.  The line under it is only for things the name
+# can't say (which safety stop, what is playing, a refusal, a calibration stage).
 
 
 def row_for_node(nid: str) -> Optional[str]:
@@ -116,37 +111,49 @@ class Rail:
                 with dpg.item_handler_registry() as h:
                     dpg.add_item_clicked_handler(callback=safe(self._refresh_ports))
                 dpg.bind_item_handler_registry(self.tags["port"], h)
+                T.tip(self.tags["port"], "The serial port the Teensy is on. \"sim\" runs a simulated Teensy and motor "
+                                         "(nothing moves). Click to refresh the list.")
                 self.tags["connect"] = T.action("Connect", "secondary", safe(self._connect), 106)
+                T.tip(self.tags["connect"], "Open or close the USB link to the Teensy. Closing it turns the motor off first.")
 
             T.gap(22)
             self.tags["state"] = dpg.add_text("Not connected")
             T.bind_font(self.tags["state"], "state")
+            T.tip(self.tags["state"], "What the motor is doing. Hover the buttons below to see what each one changes.")
             self.tags["state_line"] = dpg.add_text("Choose a port and connect.", color=T.MUTED, wrap=INNER)
             T.bind_font(self.tags["state_line"], "small")
             T.gap(4)
             self.tags["angle"] = dpg.add_text("—")
             T.bind_font(self.tags["angle"], "numeral")
+            T.tip(self.tags["angle"], "Measured wheel angle. 0° is the middle of the end stops once calibrated.")
             self.tags["target"] = dpg.add_text("", color=T.MUTED)
             T.bind_font(self.tags["target"], "small")
+            T.tip(self.tags["target"], "The setpoint the Teensy is commanding (after its speed limit).")
 
             T.gap(16)
-            seg_w = (INNER - 2) // 2
+            seg_a = 152
+            seg_b = INNER - 2 - seg_a
             with dpg.group(horizontal=True, horizontal_spacing=2, tag="seg"):
-                self.tags["hold"] = dpg.add_button(label="Hold", width=seg_w, callback=safe(self._hold))
-                self.tags["free"] = dpg.add_button(label="Free-spin", width=seg_w, callback=safe(c.freespin_on))
+                self.tags["hold"] = dpg.add_button(label="Position control", width=seg_a, callback=safe(self._hold))
+                self.tags["free"] = dpg.add_button(label="Free-spin", width=seg_b, callback=safe(c.freespin_on))
             for k in ("hold", "free"):
                 T.bind_font(self.tags[k], "label")
             g.bind(self.tags["hold"], self._hold_action, {
-                "enable": "Turn the motor on and hold the wheel where it is.",
-                "freespin_off": "Grip the wheel again where it is now.",
-                "hold_here": "Stop following and hold the wheel where it is now."})
-            g.bind(self.tags["free"], "freespin_on", "No torque: turn the wheel by hand. Press Record to capture the motion.")
-            self.tags["clear"] = T.action("Clear trip", "primary", safe(c.clear_trip), INNER)
-            g.bind(self.tags["clear"], "clear_trip", "Unlatch the trip. The motor stays off until you press Hold.")
+                "enable": "Turn the motor on and servo the wheel to the angle it is at now. "
+                          "Then drag the setpoint slider on Drive to move it.",
+                "freespin_off": "Leave free-spin: the motor grips the wheel at the angle it is at now.",
+                "hold_here": "Stop the playback / waveform / planner and keep the wheel at the angle it is at now."})
+            g.bind(self.tags["free"], "freespin_on",
+                   "Motor on with zero torque: turn the wheel by hand and its angle is still measured. "
+                   "Press Record on Drive to capture a hand motion you can play back later.")
+            self.tags["clear"] = T.action("Reset safety stop", "primary", safe(c.clear_trip), INNER)
+            g.bind(self.tags["clear"], "clear_trip",
+                   "Acknowledge the safety stop once its cause is fixed. The motor stays off: press Position control "
+                   "to turn it on again.")
             dpg.configure_item(self.tags["clear"], show=False)
             self.tags["stop"] = T.action("Stop motor", "danger_idle", safe(lambda: c.emergency_rest("button")), INNER)
-            with dpg.tooltip(self.tags["stop"]):
-                T.label("Always available. Stops any stream or recording and turns the motor off.", T.INK)
+            T.tip(self.tags["stop"], "Always available. Turns the motor off (no torque, the wheel turns freely) and "
+                                     "stops any playback, waveform or recording. It is not the hardware E-stop.")
 
             T.gap(26)
             self.dl = dpg.add_drawlist(width=INNER, height=self._chain_h, tag="chain")
@@ -221,29 +228,34 @@ class Rail:
             port_open = self.app.link.stats.port_open
             dpg.set_value(self.tags["state"], "Waiting for the Teensy" if port_open else "Not connected")
             dpg.configure_item(self.tags["state"], color=T.INK)
-            dpg.set_value(self.tags["state_line"], "No telemetry yet. See USB below." if port_open else "Choose a port and connect.")
+            dpg.set_value(self.tags["state_line"], "No telemetry yet: see the USB row below." if port_open
+                          else "Choose a port and connect.")
             dpg.configure_item(self.tags["state_line"], color=T.MUTED)
             dpg.set_value(self.tags["angle"], "—")
             dpg.set_value(self.tags["target"], "")
         else:
-            dpg.set_value(self.tags["state"], T.CS_WORD.get(cs, "?"))
-            dpg.configure_item(self.tags["state"], color=T.CS_COLOR.get(cs, T.INK))
-            line, col = STATE_LINE.get(cs, ""), T.MUTED
+            title = W.STATE.get(cs, "?")
+            line, col = "", T.MUTED
+            if cs == P.CS_TRAJ:
+                title = W.STREAM_STATE.get(self.c.stream_kind if self.c.streamer.active else "planner", title)
             if fw and fw.trip_code:
-                line, col = f"{P.TRIP_NAMES.get(fw.trip_code, '?').replace('_', ' ').capitalize()}: " + \
-                    P.TRIP_EXPLAIN.get(fw.trip_code, ""), T.BAD
+                detail = live.trip_text
+                line, col = W.trip_line(fw.trip_code, detail) + ". " + W.TRIP_WHY.get(fw.trip_code, ""), T.BAD
             elif cs == P.CS_TRAJ and self.c.streamer.active:
                 s = self.app.bus.latest("stream") or {}
-                line = f"Following {s.get('name', 'stream')}, {self.c.streamer.progress * 100:.0f}% done."
+                line = f"{s.get('name', 'stream')}, {self.c.streamer.progress * 100:.0f}% done"
             elif cs == P.CS_CALIB and fw:
-                line = f"Finding the end stops: {P.CAL_NAMES.get(fw.calib_stage, '?').lower()}."
-            elif live.last_rejection and time.monotonic() - live.last_rejection_t < 6:
+                line = W.CAL_STAGE.get(fw.calib_stage, "").capitalize()
+            if live.last_rejection and time.monotonic() - live.last_rejection_t < 6 and not (fw and fw.trip_code):
                 line, col = live.last_rejection, T.WARN
+            dpg.set_value(self.tags["state"], title)
+            dpg.configure_item(self.tags["state"], color=T.CS_COLOR.get(cs, T.INK))
             dpg.set_value(self.tags["state_line"], line)
-            dpg.configure_item(self.tags["state_line"], color=col)
-            dpg.set_value(self.tags["angle"], f"{t.position_deg:+.1f}°".replace("-", "−"))
-            energized = cs in P.CS_ENABLED and cs != P.CS_FREESPIN
-            dpg.set_value(self.tags["target"], f"target {t.setpoint_deg:+.1f}°".replace("-", "−") if energized else "")
+            dpg.configure_item(self.tags["state_line"], color=col, show=bool(line))
+            dpg.set_value(self.tags["angle"], f"{W.signed(t.position_deg)}°")
+            src = self.c.setpoint_source()
+            dpg.set_value(self.tags["target"], f"setpoint {W.signed(t.setpoint_deg)}°" if src else "")
+            dpg.configure_item(self.tags["target"], color=T.SOURCE_COLOR.get(src, T.MUTED))
         dpg.set_item_label(self.tags["connect"], "Disconnect" if self.app.link.stats.port_open else "Connect")
 
     def _controls(self):
@@ -271,6 +283,23 @@ class Rail:
     def _w(self, text, font) -> float:
         sz = dpg.get_text_size(text, font=T.font(font)) if T.font(font) else None
         return sz[0] if sz else len(text) * 7.5
+
+    def _wrap(self, text, width, lines: int = 2):
+        """Word-wrap into at most `lines` lines; the last one is cut with an ellipsis."""
+        words, out, cur = text.split(), [], ""
+        for i, w in enumerate(words):
+            nxt = (cur + " " + w).strip()
+            if self._w(nxt, "small") <= width or not cur:
+                cur = nxt
+                continue
+            out.append(cur)
+            if len(out) == lines - 1:
+                cur = " ".join(words[i:])
+                break
+            cur = w
+        out.append(cur)
+        out[-1] = self._fit(out[-1], "small", width)
+        return out[:lines]
 
     def _fit(self, text, font, width) -> str:
         if self._w(text, font) <= width:
@@ -304,11 +333,11 @@ class Rail:
         else:
             v["motor"] = ""
         s1 = tree.nodes["S1"].state
-        v["safety"] = "tripped" if fw and fw.trip_code else ("armed" if s1 == P.HS_OK else "switch open" if s1 == P.HS_BLOCKED else "")
+        v["safety"] = "stopped" if fw and fw.trip_code else ("armed" if s1 == P.HS_OK else "idle switch on" if s1 == P.HS_BLOCKED else "")
         on = bool(hub and hub.status["running"])
         if on:
             n = hub.status.get("clients", 0)
-            v["hub"] = f"{n} client" + ("" if n == 1 else "s")
+            v["hub"] = f"{n} browser" + ("" if n == 1 else "s")
         else:
             v["hub"] = "off"
         return v
@@ -327,8 +356,9 @@ class Rail:
             key, label, nodes, kind = r
             st, wid, off = row_state(tree, nodes)
             base = 30 if kind == "node" else 26
-            h = base + (20 if wid else 0)
-            layout.append((key, y, h, st, wid, off, kind, label))
+            why = self._wrap(tree.nodes[wid].reason or NODE_BY_ID[wid].name, INNER - xt - 30) if wid else []
+            h = base + 19 * len(why)
+            layout.append((key, y, h, st, (wid, why) if wid else None, off, kind, label))
             y += h
         total = y + 4
         if abs(total - self._chain_h) > 1:
@@ -350,11 +380,12 @@ class Rail:
             e = next(x for x in chain if x[0] == link)
             col = T.STATE_COLOR[e[3]]
             y1, y2 = dot_y[a] + 6, dot_y[b] - 6
-            if e[3] == P.HS_UNKNOWN:
+            if e[3] != P.HS_OK:            # not ok: broken line (dotted = no data, dashed = problem)
+                on, gap = (3, 4) if e[3] == P.HS_UNKNOWN else (7, 5)
                 yy = y1
                 while yy < y2:
-                    dpg.draw_line((xl, yy), (xl, min(yy + 3, y2)), color=col, thickness=2, parent=self.dl)
-                    yy += 7
+                    dpg.draw_line((xl, yy), (xl, min(yy + on, y2)), color=col, thickness=2, parent=self.dl)
+                    yy += on + gap
             else:
                 dpg.draw_line((xl, y1), (xl, y2), color=col, thickness=2, parent=self.dl)
 
@@ -362,10 +393,7 @@ class Rail:
             col = T.STATE_COLOR[st]
             if kind == "node":
                 cy = y0 + 14
-                if off or st == P.HS_UNKNOWN:
-                    dpg.draw_circle((xl, cy), 4.5, color=T.FAINT, thickness=1.6, parent=self.dl)
-                else:
-                    dpg.draw_circle((xl, cy), 5, fill=col, color=col, parent=self.dl)
+                T.status_mark(self.dl, (xl, cy), st, off)
                 self._text((xt, y0 + 4), label, "label", T.INK)
                 vf = "small"
                 vy = y0 + 6
@@ -377,9 +405,11 @@ class Rail:
             if v:
                 self._text((INNER - self._w(v, vf), vy), v, vf, T.MUTED)
             if wid:
-                n = tree.nodes[wid]
-                txt = self._fit(f"{wid}  {n.reason or NODE_BY_ID[wid].name}", "small", INNER - xt)
-                self._text((xt, y0 + h - 22), txt, "small", col)
+                nid, why = wid
+                top = y0 + h - 19 * len(why) - 3
+                for i, ln in enumerate(why):
+                    self._text((xt, top + 19 * i), ln, "small", col)
+                self._text((INNER - self._w(nid, "small"), top), nid, "small", col)
 
     # ---- hover / click -------------------------------------------------------------------------------------
     def _row_at(self) -> Optional[str]:
@@ -393,8 +423,11 @@ class Rail:
         return None
 
     def _hover_tip(self):
-        self.hover = self._row_at()
-        if not self.hover:
+        row = self._row_at()
+        if row != self.hover:
+            self._hover_t = time.monotonic()
+        self.hover = row
+        if not self.hover or time.monotonic() - getattr(self, "_hover_t", 0.0) < T.TIP_DELAY_S * 0.7:
             dpg.configure_item("rail_tip", show=False)
             return
         key, label, nodes, kind = ROW_DEF[self.hover]
@@ -405,7 +438,7 @@ class Rail:
                 nid = nodes[i]
                 nd, s = NODE_BY_ID[nid], tree.nodes[nid]
                 word = "off" if nd.optional and s.state == P.HS_BLOCKED else T.STATE_WORD[s.state]
-                dpg.set_value(line, f"{nid}  {nd.name}: {word}" + (f", {s.reason}" if s.reason and s.state != P.HS_OK else ""))
+                dpg.set_value(line, f"{nid}  {nd.name}: " + (s.reason if s.reason and s.state != P.HS_OK else word))
                 dpg.configure_item(line, show=True, color=T.INK if s.state == P.HS_OK or nd.optional else T.STATE_COLOR[s.state])
             else:
                 dpg.configure_item(line, show=False)

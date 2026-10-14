@@ -72,6 +72,10 @@ def main():
     shot("01_drive_resting")
     c.enable()
     until(lambda: c.live.ctrl_state == P.CS_HOLD, what="HOLD")
+    # plain words: the state, the reason lines and refusals must not use internal names
+    from steering import words as W
+    frames(3)
+    assert dpg.get_value(ui.rail.tags["state"]) == W.STATE[P.CS_HOLD]
     c.calibrate()
     dpg.set_value("tabs", "tab_cal")
     frames(20, 0.03)
@@ -80,7 +84,7 @@ def main():
     dpg.set_value("tabs", "tab_drive")
     ui.panels["drive"].set_slider(25.0)
     frames(60, 0.03)
-    shot("03_drive_holding")
+    shot("03_drive_position_control")
     dpg.set_value("tabs", "tab_drive")
     frames(5)
     c.run_generator("sine", amplitude_deg=25, freq_hz=0.8, duration_s=2.0)
@@ -113,7 +117,7 @@ def main():
     dpg.set_value("tabs", "tab_health")
     ui.panels["health"].select("S1")
     frames(10)
-    shot("08_health_tripped")
+    shot("08_health_safety_stop")
     # literal connection lines: pretend the Enable button is hovered while S1/S2 block it
     dpg.set_value("tabs", "tab_drive")
     rec_btn = ui.panels["drive"].tags["rec"]

@@ -86,8 +86,12 @@ class HealthEvaluator:
         self.store_status = {"ok": None, "error": ""}
         self.server_status = {"running": False, "clients": 0, "error": ""}
         self.phone_status = {"connected": False, "offset_ms": None, "jitter_ms": None, "capturing": False}
+        self._cfg = None              # ConfigEchoPacket: motor id, zeroed, limits valid
+        self._current_A = 0.0
         bus.subscribe("health_fw", self._on_fw)
         bus.subscribe("link", self._on_link)
+        bus.subscribe("config", lambda c: setattr(self, "_cfg", c))
+        bus.subscribe("telemetry", lambda t: setattr(self, "_current_A", t.current_A))
 
     # ---- inputs -------------------------------------------------------------------
     def _on_fw(self, pkt):
@@ -121,80 +125,88 @@ class HealthEvaluator:
         fw_fresh = fw is not None and fw_age < HEALTH_STALE_S
         for idx, nd in FW_NODES.items():
             if not fw_fresh:
-                put(nd.id, HS_UNKNOWN, "no firmware health" if fw is None else f"stale {fw_age:.1f}s")
+                put(nd.id, HS_UNKNOWN, "no health report from the Teensy yet" if fw is None
+                    else f"Teensy health report is {fw_age:.1f} s old")
                 continue
             st = fw.node(idx)
-            reason = self._fw_reason(nd.id, st, fw)
+            reason = self._fw_reason(nd.id, st, fw, self._cfg, self._current_A)
             put(nd.id, st, reason)
 
-        # --- D: PC link ---
+        # --- C: PC link ---
         ls = self._link
         if ls is None or not ls.port_open:
-            err = (ls.port_error if ls else "") or "not connected"
-            put("C1", HS_BLOCKED if not (ls and ls.port_error) else HS_FAIL, err)
+            err = (ls.port_error if ls else "") or "not connected: pick a port and press Connect"
+            put("C1", HS_BLOCKED if not (ls and ls.port_error) else HS_FAIL,
+                err if not (ls and ls.port_error) else f"USB port error: {err}")
             for nid in ("C2", "C3", "C4", "C5", "C6"):
-                put(nid, HS_UNKNOWN, "port closed")
+                put(nid, HS_UNKNOWN, "USB port not open")
         else:
-            put("C1", HS_OK, "open")
+            put("C1", HS_OK, "USB port open")
             b_age = ls.age("byte", now)
             just_opened = now - ls.opened_at < 1.5
             if b_age > BYTES_STALE_S:
-                put("C2", HS_BLOCKED if just_opened else HS_FAIL, "no bytes" if ls.bytes_in == 0 else f"silent {b_age:.1f}s")
+                put("C2", HS_BLOCKED if just_opened else HS_FAIL,
+                    "USB: no bytes received yet" if ls.bytes_in == 0 else f"USB: nothing received for {b_age:.1f} s")
             else:
-                put("C2", HS_OK, f"{ls.bytes_in} B")
+                put("C2", HS_OK, f"{ls.bytes_in:,} bytes received")
             f_age = ls.age("frame", now)
             crc_rate = ls.crc_errors / max(1, ls.frames_ok + ls.crc_errors)
             if f_age > BYTES_STALE_S:
-                put("C3", HS_UNKNOWN if just_opened else HS_FAIL, "no frames decode (baud/version?)" if ls.frames_ok == 0 else "frames stopped")
+                put("C3", HS_UNKNOWN if just_opened else HS_FAIL,
+                    "USB: bytes arrive but none form a valid frame (protocol version?)" if ls.frames_ok == 0
+                    else f"USB: no valid frame for {f_age:.1f} s")
             elif crc_rate > 0.05:
-                put("C3", HS_FAIL, f"CRC errors {crc_rate:.0%}", crc=ls.crc_errors)
+                put("C3", HS_FAIL, f"USB: {crc_rate:.0%} of frames fail the CRC check (cable?)", crc=ls.crc_errors)
             elif ls.drops and ls.drops / max(1, ls.frames_ok) > 0.02:
-                put("C3", HS_BLOCKED, f"drops {ls.drops}", drops=ls.drops)
+                put("C3", HS_BLOCKED, f"USB: {ls.drops} frames lost in transit", drops=ls.drops)
             else:
-                put("C3", HS_OK, f"{ls.frames_hz:.0f} fps")
+                put("C3", HS_OK, f"{ls.frames_hz:.0f} frames/s")
             t_age = ls.age("telemetry", now)
             put("C4", HS_OK if t_age < TELEMETRY_STALE_S else (HS_UNKNOWN if just_opened else HS_FAIL),
-                f"{ls.telemetry_hz:.0f} Hz" if t_age < TELEMETRY_STALE_S else f"stale {min(t_age, 999):.1f}s")
+                f"{ls.telemetry_hz:.0f} Hz" if t_age < TELEMETRY_STALE_S
+                else f"no telemetry from the Teensy for {min(t_age, 999):.1f} s")
             if not fw_fresh:
-                put("C5", HS_UNKNOWN, "no firmware health yet")
+                put("C5", HS_UNKNOWN, "no health report from the Teensy yet")
             elif fw.pc_hb_age_ms == 0xFFFF:
-                put("C5", HS_BLOCKED if just_opened else HS_FAIL, "Teensy never heard a heartbeat")
+                put("C5", HS_BLOCKED if just_opened else HS_FAIL, "Teensy has not heard from the laptop at all")
             elif fw.pc_hb_age_ms > 1000:
-                put("C5", HS_FAIL, f"Teensy last heard us {fw.pc_hb_age_ms} ms ago")
+                put("C5", HS_FAIL, f"Teensy last heard the laptop {fw.pc_hb_age_ms / 1000:.1f} s ago")
             else:
-                put("C5", HS_OK, f"round trip ok ({fw.pc_hb_age_ms} ms)")
+                put("C5", HS_OK, f"Teensy hears the laptop ({fw.pc_hb_age_ms} ms)")
             put("C6", HS_OK if fw_fresh else (HS_UNKNOWN if just_opened else HS_FAIL),
-                "fresh" if fw_fresh else "no HealthPacket")
+                "fresh" if fw_fresh else "no health report from the Teensy for over 0.5 s")
 
         # --- D data & services ---
         r = self.recorder_status
         if not r["ok"]:
-            put("D1", HS_FAIL, r["error"] or "recorder error")
+            put("D1", HS_FAIL, f"Recorder stopped: {r['error']}" if r["error"] else "Recorder stopped with an error")
         elif r["active"] and r["dropped"]:
-            put("D1", HS_FAIL, f"dropping samples ({r['dropped']})")
+            put("D1", HS_FAIL, f"Recorder dropping samples ({r['dropped']} lost, disk too slow?)")
         else:
             put("D1", HS_OK, "recording" if r["active"] else "idle")
         s = self.store_status
-        put("D2", HS_UNKNOWN if s["ok"] is None else HS_OK if s["ok"] else HS_FAIL, s["error"] or ("ok" if s["ok"] else ""))
+        put("D2", HS_UNKNOWN if s["ok"] is None else HS_OK if s["ok"] else HS_FAIL,
+            (f"Can't write the data folder: {s['error']}" if s["error"] else "") or ("writable" if s["ok"] else ""))
         sv = self.server_status
         put("D3", HS_FAIL if sv["error"] else HS_OK if sv["running"] else HS_BLOCKED,
-            sv["error"] or (f"{sv['clients']} client(s)" if sv["running"] else "not running"))
+            f"Web hub failed: {sv['error']}" if sv["error"] else
+            (f"{sv['clients']} browser(s) connected" if sv["running"] else "web hub off"))
         ph = self.phone_status
         if not ph["connected"]:
-            put("D4", HS_BLOCKED, "no phone")
+            put("D4", HS_BLOCKED, "no phone connected")
         elif ph["jitter_ms"] is not None and ph["jitter_ms"] > 50:
-            put("D4", HS_FAIL, f"clock jitter {ph['jitter_ms']:.0f} ms")
+            put("D4", HS_FAIL, f"Phone clock unstable (jitter {ph['jitter_ms']:.0f} ms)")
         else:
-            put("D4", HS_OK, f"offset {ph['offset_ms']:.0f} ms" if ph["offset_ms"] is not None else "synced")
+            put("D4", HS_OK, f"clock offset {ph['offset_ms']:.0f} ms" if ph["offset_ms"] is not None else "synced")
         ui_age = now - self._ui_frame_t
         if not self.ui_present:
-            put("D5", HS_OK, "headless")
+            put("D5", HS_OK, "no UI (headless)")
         elif ui_age > UI_STALL_S:
-            put("D5", HS_FAIL, f"UI stalled {ui_age:.1f}s" + (f" - {self._last_ui_error}" if self._last_ui_error else ""))
+            put("D5", HS_FAIL, f"UI frozen for {ui_age:.1f} s" + (f": {self._last_ui_error}" if self._last_ui_error else ""))
         elif self._ui_frame_dt > UI_SLOW_S:
-            put("D5", HS_BLOCKED, f"slow frame {self._ui_frame_dt * 1000:.0f} ms")
+            put("D5", HS_BLOCKED, f"UI slow: one frame took {self._ui_frame_dt * 1000:.0f} ms")
         else:
-            put("D5", HS_OK, f"{self._ui_frame_dt * 1000:.0f} ms/frame")
+            put("D5", HS_OK, f"{self._ui_frame_dt * 1000:.0f} ms per frame")
 
         # --- commit, detect transitions ---
         changed = []
@@ -219,23 +231,70 @@ class HealthEvaluator:
         return self.tree
 
     @staticmethod
-    def _fw_reason(nid: str, st: int, fw: P.HealthPacket) -> str:
+    def _fw_reason(nid: str, st: int, fw: P.HealthPacket, cfg=None, current_A: float = 0.0) -> str:
+        """A plain sentence for a firmware-decided node: what is physically going on, with the number."""
+        ok = st == HS_OK
+        mid = f"id {cfg.motor_id}" if cfg else "the configured id"
+        if st == HS_UNKNOWN:
+            return {"M5": "no motor data yet", "M6": "no motor data yet", "T4": "screen not checked yet"}.get(nid, "no data yet")
         if nid == "M1":
-            return ["active", "warning", "passive", "BUS-OFF"][min(fw.can_bus_state, 3)] + f" TEC={fw.can_tec} REC={fw.can_rec}"
+            if fw.can_bus_state >= 3:
+                return "CAN bus-off: the transceiver sees no valid bus (wiring, power, termination)"
+            if fw.can_bus_state == 2:
+                return f"CAN error-passive: too many errors (TX {fw.can_tec}, RX {fw.can_rec})"
+            if not ok or fw.can_bus_state == 1:
+                return f"CAN errors high (TX {fw.can_tec}, RX {fw.can_rec}): noise or termination"
+            return f"CAN ok, errors TX {fw.can_tec} RX {fw.can_rec}"
         if nid == "M2":
-            return f"TEC={fw.can_tec}"
+            if ok:
+                return "frames acknowledged"
+            return f"CAN TX: frames not acknowledged by anyone (error count {fw.can_tec})"
         if nid == "M3":
-            return f"{fw.can_rx_motor_hz + fw.can_rx_other_hz} Hz on bus"
+            hz = fw.can_rx_motor_hz + fw.can_rx_other_hz
+            return f"{hz} frames/s received" if ok or hz else "CAN RX: no frames received (0 Hz)"
         if nid == "M4":
             if fw.motor_age_ms == 0xFFFF:
-                return "motor never replied"
-            return f"{fw.can_rx_motor_hz} Hz, last {fw.motor_age_ms} ms ago"
+                return f"Motor has never replied on CAN ({mid}): off, unpowered or wrong id"
+            if ok:
+                return f"{fw.can_rx_motor_hz} replies/s"
+            if fw.motor_age_ms > 200:
+                return f"Motor stopped replying on CAN {fw.motor_age_ms / 1000:.1f} s ago ({mid})"
+            if st == HS_BLOCKED:
+                return f"Motor replies only when commanded; last {fw.motor_age_ms} ms ago"
+            return f"Motor replying at only {fw.can_rx_motor_hz} Hz (expected ~1000)"
+        if nid == "M5":
+            return "values decode and change" if ok else "Motor angle is NaN or has repeated the same value 200 times"
+        if nid == "M6":
+            if ok:
+                return f"{abs(current_A):.1f} A"
+            return (f"Motor current {abs(current_A):.1f} A, over the cut-out" if st == HS_FAIL
+                    else f"Motor current {abs(current_A):.1f} A, close to the cut-out")
         if nid == "S1":
-            return "ARMED" if st == HS_OK else "IDLE (switch open)"
+            return "idle switch off (armed)" if ok else "Idle switch on: the motor is not allowed to have torque"
         if nid == "S2":
-            return "none" if st == HS_OK else P.TRIP_NAMES.get(fw.trip_code, str(fw.trip_code))
+            if ok:
+                return "no safety stop"
+            from ..words import TRIP
+            return f"Safety stop: {TRIP.get(fw.trip_code, f'code {fw.trip_code}')}"
         if nid == "T1":
-            return f"{fw.loop_hz} Hz, {fw.isr_overruns} overruns"
+            if ok:
+                return f"{fw.loop_hz} Hz, {fw.isr_overruns} overruns"
+            return f"Control loop at {fw.loop_hz} Hz with {fw.isr_overruns} overruns (expected 1000 Hz, 0)"
+        if nid == "T2":
+            if ok:
+                return "0° and end stops set"
+            if cfg is not None:
+                missing = [w for w, have in (("0°", cfg.zeroed), ("end stops", cfg.limits_valid)) if not have]
+                if missing:
+                    return f"Not calibrated: no {' and no '.join(missing)}"
+            return "Not calibrated: 0° or end stops missing"
         if nid == "T3":
-            return P.CAL_NAMES.get(fw.calib_stage, "")
+            from ..words import CAL_STAGE
+            if st == HS_FAIL:
+                return "Last calibration failed"
+            if st == HS_BLOCKED:
+                return f"Calibration running: {CAL_STAGE.get(fw.calib_stage, '')}"
+            return "idle" if fw.calib_stage in (P.CAL_IDLE,) else CAL_STAGE.get(fw.calib_stage, "")
+        if nid == "T4":
+            return "screen answering" if ok else "no OLED screen on I2C (optional)"
         return ""

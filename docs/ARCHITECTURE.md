@@ -85,9 +85,21 @@ it and the Teensy. It serves:
 * `/phone` — phone capture (camera, IMU, NTP-style sync into the active recording's folder).
 * `/ws` — JSON stream (telemetry 20 Hz, health 2 Hz, events, recording state) and, with *allow remote
   control*, `{"type":"setpoint","pos_deg":…}` from the planner at up to 200 Hz →
-  `Controller.external_setpoint` (same gating as a trajectory; firmware falls back to HOLD if the stream
-  stops).
-* `/api/...` — REST for recordings, health and docs.
+  `Controller.external_setpoint` (same gating as a trajectory; firmware falls back to position control (HOLD) if
+  the stream stops).
+* `/api/...` — REST for recordings, health and docs; `/api/info` lists the addresses other devices can use,
+  `/api/qr.svg` draws a QR code for one.
+
+**Reaching it over the Wi-Fi.** The same `web/index.html` is published to GitHub Pages
+(`pc/tools/build_pages.py`, `.github/workflows/pages.yml`) with the docs pre-rendered, so docs work with no
+hub. An https page may call `http://localhost` (browsers treat loopback as secure) but not a plain-http
+device on the LAN, so: on the laptop itself the Pages copy talks to the hub in place (the hub's CORS allows
+exactly the Pages origin, including Chrome's private-network preflight); on any other device it hands over
+to the laptop's own copy at `http://<ip>:8765/`. `?hub=<ip>:8765` in the Pages URL (Settings shows it as a
+link and a QR code) makes that one tap, and the address is remembered. With `zeroconf` installed the hub
+also answers as `genauto.local` (mDNS), which survives DHCP changing the laptop's IP. The WebSocket accepts
+browsers only from its own pages and the Pages origin (non-browser clients send no Origin and are allowed),
+so another website open in the same browser cannot drive the hub.
 
 Future devices (throttle robot) implement `devices/base.py::Device` — health nodes with a group letter of
 their own, timestamped samples the recorder writes next to `data.csv`, gated actions.

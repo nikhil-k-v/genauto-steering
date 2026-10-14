@@ -14,9 +14,13 @@ from typing import Optional
 import dearpygui.dearpygui as dpg
 import numpy as np
 
+from ... import protocol as P
+from ... import words as W
 from ...data.analysis import compute_metrics, load_csv, trim_csv
 from ...data.store import Recording
+from .. import lines as L
 from .. import theme as T
+from ..liveplot import SOURCE_LABEL, SOURCES, STREAMS
 from ..safe import safe, toast
 
 LIB_W = 360
@@ -29,10 +33,13 @@ METRICS = [("tracking_score_pct", "Tracking score", "{:.0f}%"), ("err_rms_deg", 
            ("step_rise_s", "Rise time", "{:.3f} s"), ("step_overshoot_pct", "Overshoot", "{:.1f}%"),
            ("step_settle_s", "Settling", "{:.2f} s"), ("relay_Ku_Nm_per_rad", "Ku", "{:.1f} Nm/rad"),
            ("relay_Tu_s", "Tu", "{:.3f} s"), ("max_gap_ms", "Longest gap", "{:.0f} ms")]
-COLS = {"setpoint": "setpoint_deg", "target": "target_deg", "position": "position_deg", "error": "error_deg",
-        "velocity": "velocity_deg_s", "current": "current_A"}
-PLOTS = (("pos", "degrees", ("setpoint", "target", "position")), ("err", "error °", ("error",)),
-         ("dyn", "°/s, A", ("velocity", "current")))
+# plots: key, y label, (series name, column, y axis)
+PLOTS = (("pos", "wheel angle (°)", [(f"sp_{s}", "setpoint_deg", 1) for s in SOURCES] +
+                                     [(f"req_{s}", "target_deg", 1) for s in STREAMS] + [("position", "position_deg", 1)]),
+         ("err", "error (°)", [("error", "error_deg", 1)]),
+         ("spd", "speed (°/s)", [("velocity", "velocity_deg_s", 1)]),
+         ("tq", "torque (N·m)", [("torque", "torque_cmd_Nm", 1), ("current", "current_A", 2)]))
+STATE_SOURCE = {P.CS_HOLD: "user", P.CS_TEST: "test", P.CS_CALIB: "calib"}
 
 
 class PlaybackPanel:
@@ -56,11 +63,14 @@ class PlaybackPanel:
             with dpg.child_window(width=LIB_W, border=False, tag="lib_col") as lc:
                 dpg.bind_item_theme(lc, T.theme("bare"))
                 self.tags["search"] = T.text_input("", LIB_W - 4, "Search names, notes, tags", callback=safe(self._mark))
+                T.tip(self.tags["search"], "Filters the list as you type: matches names, notes and tags.")
                 with dpg.group(horizontal=True, horizontal_spacing=6):
                     self.tags["sort"] = dpg.add_combo(["newest", "pinned", "most played", "name"], default_value="newest",
                                                       width=(LIB_W - 10) // 2, callback=safe(self._mark))
                     self.tags["coll"] = dpg.add_combo(["all collections"] + self.store.collections(),
                                                       default_value="all collections", width=(LIB_W - 10) // 2, callback=safe(self._mark))
+                    T.tip(self.tags["sort"], "Order of the list. Playbacks always sit under the recording they replayed.")
+                    T.tip(self.tags["coll"], "Show one collection only.")
                 T.gap(4)
                 with dpg.child_window(tag="lib_list", border=False) as ll:
                     dpg.bind_item_theme(ll, T.theme("bare"))
@@ -80,31 +90,47 @@ class PlaybackPanel:
                         g.bind(self.tags["play"], "playback",
                                "Streams this position trace to the motor from where the wheel is now. Saved as a new playback, linked here.")
                         self.tags["speed"] = dpg.add_combo(SPEEDS, default_value="×1", width=80)
-                        b = T.action("Stop", "secondary", safe(self.c.stop_all), 80)
-                        g.bind(b, "stop_stream")
-                        self.tags["pb_status"] = T.label("")
-                        dpg.add_spacer(width=20)
-                        self.tags["pin"] = T.action("Pin", "quiet", safe(self._toggle_pin))
-                        T.action("Open folder", "quiet", safe(self._open_folder))
-                        T.action("Hide", "quiet", safe(self._delete))
+                        T.tip(self.tags["speed"], "Playback speed. ×2 plays the motion twice as fast (and twice as "
+                                                  "aggressively); the Teensy's speed limit still applies.")
+                        b = T.action("Stop playback", "secondary", safe(self.c.stop_all), 130)
+                        g.bind(b, "stop_stream", "Stop the playback; the motor keeps the angle it reached "
+                                                 "(Position control). The partial run is still saved.")
+                        dpg.add_spacer(width=10)
+                        self.tags["pin"] = T.action("Pin", "quiet", safe(self._toggle_pin),
+                                                    tip_text="Pinned recordings sort first with \"pinned\".")
+                        T.action("Open folder", "quiet", safe(self._open_folder),
+                                 tip_text="Open this recording's folder (data.csv, meta.json, events, health) "
+                                          "in the file manager.")
+                        T.action("Hide", "quiet", safe(self._delete),
+                                 tip_text="Remove from the library list. The files stay on disk; "
+                                          "Settings > Rebuild catalog brings it back.")
+                    self.tags["pb_status"] = T.label("", T.SOURCE_COLOR["playback"])
+                    self.leg = dpg.add_drawlist(width=600, height=22, tag="pb_legend")
                     for key, ylab, series in PLOTS:
-                        with dpg.plot(height=170, width=-1, tag=f"pb_plot_{key}", no_title=True, no_frame=True, no_mouse_pos=True, no_menus=True,
-                                      no_box_select=True, show=key != "dyn"):
-                            dpg.add_plot_legend(location=dpg.mvPlot_Location_NorthEast, horizontal=True)
-                            dpg.add_plot_axis(dpg.mvXAxis, tag=f"pb_x_{key}", no_tick_labels=key != "dyn" and key != "err")
+                        with dpg.plot(height=170, width=-1, tag=f"pb_plot_{key}", no_title=True, no_mouse_pos=True,
+                                      no_menus=True, no_box_select=True, show=key in ("pos", "err")) as pl:
+                            T.plot_font(pl)
+                            dpg.add_plot_axis(dpg.mvXAxis, tag=f"pb_x_{key}", no_tick_labels=key == "pos")
                             y = dpg.add_plot_axis(dpg.mvYAxis, label=ylab, tag=f"pb_y_{key}")
-                            for s in series:
-                                dpg.add_line_series([], [], label={"target": "stream target", "velocity": "speed"}.get(s, s),
-                                                    parent=y, tag=f"pb_s_{key}_{s}")
-                                dpg.bind_item_theme(f"pb_s_{key}_{s}", T.series_theme(s))
+                            y2 = dpg.add_plot_axis(dpg.mvYAxis2, label="current (A)", tag=f"pb_y2_{key}", opposite=True) \
+                                if key == "tq" else None
+                            for name, col, ax in series:
+                                it = dpg.add_line_series([], [], parent=y if ax == 1 else y2, tag=f"pb_s_{key}_{name}")
+                                T.series(name, it)
                             dpg.add_drag_line(tag=f"pb_cur_{key}", color=T.INK, thickness=1, default_value=0,
                                               callback=safe(self._drag), user_data=key)
-                            dpg.add_inf_line_series([], parent=y, tag=f"pb_trim_{key}")
-                            dpg.bind_item_theme(f"pb_trim_{key}", T.series_theme("trim"))
+                            it = dpg.add_inf_line_series([], parent=y, tag=f"pb_trim_{key}")
+                            T.series("trim", it)
                     with dpg.group(horizontal=True):
-                        self.tags["more"] = T.toggle("Speed and current", False, safe(self._more))
+                        self.tags["show_spd"] = T.toggle("Speed", False, safe(self._more),
+                                                         tip_text="Show the measured speed under the angle plot.")
+                        dpg.add_spacer(width=8)
+                        self.tags["show_tq"] = T.toggle("Torque and current", False, safe(self._more),
+                                                        tip_text="Show the torque command (dashed) and the motor "
+                                                                 "current (solid) under the angle plot.")
                         dpg.add_spacer(width=18)
                         self.tags["cursor_txt"] = T.mono_text("", T.MUTED, small=True)
+                        T.tip(self.tags["cursor_txt"], "Values at the cursor line. Drag the line in any plot to move it.")
                     T.gap(10)
                     with dpg.group(horizontal=True, horizontal_spacing=40):
                         with dpg.group():
@@ -127,25 +153,35 @@ class PlaybackPanel:
                                 T.bind_font(ch, "small")
                                 self.tags["trim"] = dpg.add_slider_float(default_value=0, min_value=0, max_value=1, width=320,
                                                                          format="keep 0 to %.2f s", callback=safe(self._trim_preview))
-                                T.action("Trim permanently", "secondary", safe(self._trim))
+                                T.tip(self.tags["trim"], "Drag to choose where the recording should end (red line).")
+                                T.action("Trim permanently", "secondary", safe(self._trim),
+                                         tip_text="Delete every sample after the red line from data.csv. Cannot be undone.")
 
     def on_resize(self, w, h):
         self._h = h
+        self._w = max(500, w - LIB_W - 28)
         dpg.configure_item("lib_col", height=h + 30)
         dpg.configure_item("lib_list", height=h - 60)
         dpg.configure_item("pb_right", width=max(500, w - LIB_W - 28), height=h + 30)
         self._layout()
 
     def _layout(self):
-        more = dpg.get_value(self.tags["more"]) if "more" in self.tags else False
-        avail = max(240, self._h - 350)
-        if more:
-            hs = (int(avail * 0.45), int(avail * 0.25), int(avail * 0.3))
-        else:
-            hs = (int(avail * 0.64), int(avail * 0.36), 0)
-        for (key, _, _), hh in zip(PLOTS, hs):
-            dpg.configure_item(f"pb_plot_{key}", height=max(hh, 60), show=hh > 0)
-        dpg.configure_item("pb_x_err", no_tick_labels=more)
+        if "show_spd" not in self.tags:
+            return
+        spd, tq = dpg.get_value(self.tags["show_spd"]), dpg.get_value(self.tags["show_tq"])
+        avail = max(240, self._h - 372)
+        n = int(spd) + int(tq)
+        small = int(avail * (0.2 if n == 2 else 0.24))
+        err = int(avail * 0.22)
+        big = avail - err - n * small
+        hs = {"pos": big, "err": err, "spd": small if spd else 0, "tq": small if tq else 0}
+        for key, _, _ in PLOTS:
+            dpg.configure_item(f"pb_plot_{key}", height=max(hs[key], 60), show=hs[key] > 0)
+        last = "tq" if tq else "spd" if spd else "err"
+        for key in ("err", "spd", "tq"):
+            dpg.configure_item(f"pb_x_{key}", no_tick_labels=key != last)
+        dpg.configure_item("pb_legend", width=max(300, self._w))
+        self._sig = {}
 
     def _more(self, *_):
         self._layout()
@@ -217,12 +253,38 @@ class PlaybackPanel:
             self.data = None
             return
         d = self.data
-        t = d["t_s"].tolist()
+        t = d["t_s"]
+        # the setpoint's source on every sample, from the controller state and the recording's kind
+        cs = np.nan_to_num(d["ctrl_state"], nan=-1).astype(int)
+        traj_src = r.kind if r.kind in ("playback", "trajectory") else "planner"
+        src = np.array([traj_src if c == P.CS_TRAJ else STATE_SOURCE.get(c, "") for c in cs], dtype=object)
+        self._cols = {}
         for key, _, series in PLOTS:
-            for s in series:
-                dpg.set_value(f"pb_s_{key}_{s}", [t, d[COLS[s]].tolist()])
+            for name, col, _ in series:
+                y = d[col]
+                if name.startswith(("sp_", "req_")):
+                    m = src == name.split("_", 1)[1]
+                    if name.startswith("sp_"):
+                        m2 = m.copy(); m2[1:] |= m[:-1]
+                        m = m2
+                    y = np.where(m, y, np.nan)
+                self._cols[(key, name)] = y
+                dpg.set_value(f"pb_s_{key}_{name}", [t.tolist(), y.tolist()])
+                dpg.configure_item(f"pb_s_{key}_{name}", show=bool(np.isfinite(y).any()))
             dpg.fit_axis_data(f"pb_x_{key}"); dpg.fit_axis_data(f"pb_y_{key}")
+            if key == "tq":
+                dpg.fit_axis_data("pb_y2_tq")
             dpg.set_value(f"pb_trim_{key}", [[]])
+        self._t = t
+        self._sig = {}
+        present = [s for s in SOURCES if np.isfinite(self._cols[("pos", f"sp_{s}")]).any()]
+        reqs = [s for s in STREAMS if np.isfinite(self._cols[("pos", f"req_{s}")]).any()]
+        entries = [("position", "position (measured)")] + [(f"sp_{s}", f"setpoint · {SOURCE_LABEL[s]}") for s in present]
+        entries += [(f"req_{s}", f"requested · {SOURCE_LABEL[s]}") for s in reqs]
+        entries += [("error", "error = setpoint − position")]
+        h = L.legend(self.leg, entries, max(300, getattr(self, "_w", 600)))
+        dpg.configure_item(self.leg, height=h)
+        t = t.tolist()
         tmax = float(t[-1]) if t else 1.0
         dpg.configure_item(self.tags["trim"], max_value=tmax)
         dpg.set_value(self.tags["trim"], tmax)
@@ -258,9 +320,10 @@ class PlaybackPanel:
             dpg.set_value(f"pb_cur_{key}", t)
         d = self.data
         i = int(np.clip(np.searchsorted(d["t_s"], t), 0, len(d["t_s"]) - 1))
-        f = lambda v: "—" if v != v else f"{v:+.1f}"
-        dpg.set_value(self.tags["cursor_txt"], f"t {d['t_s'][i]:.2f} s   setpoint {f(d['setpoint_deg'][i])}°   position {f(d['position_deg'][i])}°   "
-                                               f"error {f(d['error_deg'][i])}°   speed {f(d['velocity_deg_s'][i])}°/s   current {f(d['current_A'][i])} A")
+        f = lambda v: "—" if v != v else W.signed(v)
+        dpg.set_value(self.tags["cursor_txt"], f"t {d['t_s'][i]:.2f} s   setpoint {f(d['setpoint_deg'][i])}°   "
+                                               f"position {f(d['position_deg'][i])}°   error {f(d['error_deg'][i])}°   "
+                                               f"speed {f(d['velocity_deg_s'][i])}°/s   current {f(d['current_A'][i])} A")
 
     def _trim_preview(self, sender, t):
         for key, _, _ in PLOTS:
@@ -325,13 +388,32 @@ class PlaybackPanel:
             self._load()
             self._dirty = True
 
+    def _restyle(self):
+        """Re-cut dashes for any plot whose zoom or size changed (dash length is in pixels)."""
+        if self.selected is None or getattr(self, "_t", None) is None:
+            return
+        for key, _, series in PLOTS:
+            pl = f"pb_plot_{key}"
+            if not dpg.is_item_shown(pl):
+                continue
+            sig = (dpg.get_axis_limits(f"pb_x_{key}"), dpg.get_axis_limits(f"pb_y_{key}"), tuple(dpg.get_item_rect_size(pl)))
+            if self._sig.get(key) == sig:
+                continue
+            self._sig[key] = sig
+            sx, sy = L.scale(pl, f"pb_x_{key}", f"pb_y_{key}")
+            for name, col, ax in series:
+                if T.SERIES[name][1] != "solid":
+                    L.set_line(f"pb_s_{key}_{name}", name, self._t, self._cols[(key, name)], sx, sy)
+
     def refresh(self):
+        self._restyle()
         st = self.c.streamer
         rec = self.app.recorder.rec
         if st.active and rec and rec.kind == "playback":
-            dpg.set_value(self.tags["pb_status"], f"Playing, {st.progress * 100:.0f}%. Saving as {rec.name}.")
+            dpg.set_value(self.tags["pb_status"], f"playing, {st.progress * 100:.0f}%, saving as {rec.name}")
         else:
             dpg.set_value(self.tags["pb_status"], "")
+        dpg.configure_item(self.tags["pb_status"], show=bool(dpg.get_value(self.tags["pb_status"])))
 
     def slow_refresh(self):
         if self._dirty:

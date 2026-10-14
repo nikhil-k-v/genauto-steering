@@ -19,21 +19,24 @@ constants at the top of `firmware/teensy/src/config.h` and are deliberately not 
 
 ## Trip reference
 
-| Trip | Condition | Typical cause | Recovery |
-|---|---|---|---|
-| OVERSPEED | \|v\| > `VELOCITY_CUTOFF_DEG_S` (1430°/s) | runaway gains, external shove | Clear trip, lower Kp / raise Kd |
-| STALL | error > `STALL_ERROR_DEG` for `STALL_TIME_MS` while servoing | wheel blocked, gains too low to move it | remove obstruction / raise gains |
-| OVERCURRENT | \|i\| > `CURRENT_CUTOFF_A` for `CURRENT_TIME_MS` | jam, wrong torque range, too-high gains | check mechanics, gains |
-| SWITCH_OPENED | idle switch opened while enabled | human hit the switch | close switch, clear |
-| CAN_LOST | no motor reply for `CAN_REPLY_TIMEOUT_MS` while enabled | motor power dropout, wiring | fix power/wiring, clear |
-| PC_LINK_LOST | PC silent `PC_CONTROL_LOSS_MS` during TRAJ | UI frozen, USB unplugged | reconnect, clear |
-| LIMIT | measured position `LIMIT_TRIP_OVERSHOOT_DEG` past a calibrated stop | limits wrong, zero slipped, mechanical slip | recalibrate |
-| CALIB_FAILED | seek/centre/settle timeout, range < `CAL_MIN_RANGE_DEG` | wheel can't reach a stop at 3.5 Nm, something in the way | clear, check mechanics, adjust `CAL_*` |
-| PC_SHUTDOWN | PC app exited and asked for REST | normal exit | re-enable |
-| ISR_OVERRUN | ≥ `ISR_OVERRUN_TRIP` overruns in one health period | I2C stall, firmware bug | report (T1 counters) |
+The app calls a latched trip a **safety stop** and names it in plain words (pc/steering/words.py), with
+the value the Teensy measured, e.g. "Safety stop: Motor current too high (31.2 A)".
 
-Trips are latched: the Teensy stays in TRIPPED (motor resting) until **Clear trip**, which only goes to
-REST — you then Enable deliberately. `DISABLE` is always accepted (even while tripped).
+| Trip (code) | Operator sees | Condition | Typical cause | Recovery |
+|---|---|---|---|---|
+| OVERSPEED | Wheel turned too fast (1502 deg/s) | \|v\| > `VELOCITY_CUTOFF_DEG_S` (1430°/s) | runaway gains, external shove | reset, lower Kp / raise Kd |
+| STALL | Wheel stuck: could not reach the setpoint (34 deg off target) | error > `STALL_ERROR_DEG` for `STALL_TIME_MS` while servoing | wheel blocked, gains too low to move it | remove obstruction / raise gains |
+| OVERCURRENT | Motor current too high (31.2 A) | \|i\| > `CURRENT_CUTOFF_A` for `CURRENT_TIME_MS` | jam, wrong torque range, too-high gains | check mechanics, gains |
+| SWITCH_OPENED | Idle switch turned on while running (pin 22 open) | idle switch opened while enabled | human hit the switch | turn the switch off, reset |
+| CAN_LOST | Motor stopped replying on CAN | no motor reply for `CAN_REPLY_TIMEOUT_MS` while enabled | motor power dropout, wiring | fix power/wiring, reset |
+| PC_LINK_LOST | Laptop stopped sending setpoints (612 ms silent) | PC silent `PC_CONTROL_LOSS_MS` during TRAJ | UI frozen, USB unplugged | reconnect, reset |
+| LIMIT | Wheel went past an end stop (16 deg past L) | measured position `LIMIT_TRIP_OVERSHOOT_DEG` past a calibrated stop | limits wrong, zero slipped, mechanical slip | recalibrate |
+| CALIB_FAILED | Calibration failed (no stop found) | seek/centre/settle timeout, range < `CAL_MIN_RANGE_DEG` | wheel can't reach a stop at 3.5 Nm, something in the way | reset, check mechanics, adjust `CAL_*` |
+| PC_SHUTDOWN | Laptop app closed | PC app exited and asked for REST | normal exit | re-enable |
+| ISR_OVERRUN | Teensy control loop fell behind | ≥ `ISR_OVERRUN_TRIP` overruns in one health period | I2C stall, firmware bug | report (T1 counters) |
+
+Trips are latched: the Teensy stays in TRIPPED (motor resting) until **Reset safety stop**, which only goes to
+REST (Motor off) — you then press **Position control** deliberately. `DISABLE` is always accepted (even while tripped).
 
 ## What the PC must never do
 

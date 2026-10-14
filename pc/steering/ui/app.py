@@ -32,9 +32,12 @@ from typing import Dict, Optional
 import dearpygui.dearpygui as dpg
 
 from .. import protocol as P
+from .. import words as W
 from ..core.app import App
+from ..health.gating import ACTIONS
 from . import theme as T
 from .gate import GateBinder
+from .liveplot import History
 from .overlay import Overlay
 from .rail import RAIL_W, Rail
 from .safe import attach_evaluator, safe, toasts
@@ -59,6 +62,7 @@ class UI:
         self.c = app.controller
         self.sim = sim
         self.gate = GateBinder(self.c)
+        self.history = History(app)
         self.rail = Rail(self)
         self.overlay = Overlay(self)
         self.events: deque = deque(maxlen=300)
@@ -73,20 +77,10 @@ class UI:
 
     # ---- event feed ---------------------------------------------------------------------
     def _on_event(self, e: P.EventPacket):
-        if e.code == P.EV_TRIP:
-            name = str(P.TRIP_NAMES.get(e.arg, e.arg))
-            extra = e.text_str if e.text_str.lower() not in name.lower() else ""
-            txt, lvl = f"Trip: {name}{', ' + extra if extra else ''}", "bad"
-        elif e.code == P.EV_CMD_REJECTED:
-            txt, lvl = f"Teensy refused {P.CMD_NAMES.get(e.arg, hex(e.arg))}: {e.text_str}", "warn"
-        elif e.code == P.EV_STATE:
-            txt, lvl = f"state → {P.CS_NAMES.get(e.arg, e.arg)}", "info"
-        elif e.code == P.EV_CALIB_STAGE:
-            txt, lvl = f"calibration: {P.CAL_NAMES.get(e.arg, e.arg)}", "info"
-        elif e.code == P.EV_CMD_ACCEPTED:
+        said = W.event_text(e.code, e.arg, e.text_str)
+        if said is None:
             return
-        else:
-            txt, lvl = f"{P.EV_NAMES.get(e.code, str(e.code))} {e.arg} {e.text_str}".strip(), "info"
+        txt, lvl = said
         self.events.appendleft((time.strftime("%H:%M:%S"), lvl, txt))
         if lvl != "info":
             from .safe import toast
@@ -94,8 +88,9 @@ class UI:
 
     def _on_action(self, a: dict):
         if not a.get("allowed", True):
+            label = ACTIONS[a["action"]][0] if a["action"] in ACTIONS else a["action"]
             self.events.appendleft((time.strftime("%H:%M:%S"), "warn",
-                                    f"not allowed: {a['action']} ({'; '.join(a.get('reasons', []))})"))
+                                    f"{label} not available: {'; '.join(a.get('reasons', []))}"))
 
     # ---- build ----------------------------------------------------------------------------
     def build(self):
@@ -160,7 +155,7 @@ class UI:
         active = dpg.get_value("tabs")
         for key, p in self.panels.items():
             try:
-                if f"tab_{key}" == active or key == "drive":
+                if f"tab_{key}" == active:
                     p.refresh()
             except Exception:
                 log.exception("panel %s refresh failed", key)

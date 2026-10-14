@@ -13,12 +13,21 @@ about, the number its position in the chain:
 
 ![health tree](diagrams/05_health_tree.svg)
 
-| State | Colour | Meaning |
-|---|---|---|
-| OK | green | working |
-| BLOCKED | amber | not broken, but prevents some action (switch idle, not zeroed, calibration running). Optional things (hub, phone, OLED) show **OFF** instead |
-| FAIL | red | broken or tripped |
-| UNKNOWN | grey | nothing observed yet |
+| State | Shown as | Mark | Meaning |
+|---|---|---|---|
+| OK | ok | ● blue-green circle | working |
+| BLOCKED | not ready | ▲ amber triangle | not broken, but prevents some action (idle switch on, not calibrated, calibration running). Optional things (hub, phone, OLED) show **off** instead |
+| FAIL | fault | ■ vermillion square | broken, or a safety stop is latched |
+| UNKNOWN | no data | ○ grey ring | nothing observed yet |
+
+The colours are chosen for red-green colour blindness and every mark also has its own shape, so the
+state never depends on telling two colours apart. A link line in the rail is solid when ok, dashed when not
+ready / fault, dotted when there is no data.
+
+Every reason is a plain sentence about the physical problem, with the number that shows it (the check id
+comes last): `Idle switch on: the motor is not allowed to have torque  S1`,
+`Motor stopped replying on CAN 2.1 s ago (id 2)  M4`, `CAN TX: frames not acknowledged by anyone (error count 128)  M2`.
+The sentences are built in `health/evaluator.py`; the state and button names in `pc/steering/words.py`.
 
 Definitions (name, what OK means, what bad means, the fix, which actions it gates) live in one table,
 `pc/steering/health/model.py`; [HEALTH_REFERENCE.md](HEALTH_REFERENCE.md) is generated from it.
@@ -28,13 +37,14 @@ Definitions (name, what OK means, what bad means, the fix, which actions it gate
 * **The rail** (left side of the desktop app, always visible): the signal chain drawn as one line —
   Laptop, USB, Teensy, CAN, Motor — then Safety and Web hub. Each row has a status dot and one live value
   (rate, loop speed, current). The line between components takes the colour of the link it stands for, so
-  a break shows where it is. A row that is not OK gets one more line: the id and reason of its worst check
-  (`M4  0 Hz, last 6057 ms ago`). Healthy rows stay quiet. Hover a row for its checks; click it to open
+  a break shows where it is. A row that is not OK gets up to two more lines: the reason of its worst check
+  and its id (`Motor stopped replying on CAN 6.1 s ago (id 2)  M4`). Healthy rows stay quiet. Hover a row for its checks; click it to open
   that check on the Health page.
 * **Health page**: every check, grouped by kind, with its live reason. Click one to see what OK means,
   what it means when it isn't, the fix, and what it blocks; counters, recent changes and events sit under it.
-* **Controls**: every button or slider that can move the motor is bound to an action. When a check blocks it,
-  the control is disabled and its tooltip says exactly why. **Hovering a control draws lines from it to the
+* **Controls**: every button or slider that can move the motor is bound to an action. Hover any control for
+  about a second and it explains what it does; when a check blocks it, the control is disabled and the same
+  tooltip lists exactly why. **Hovering a control draws lines from it to the
   rail rows it depends on**: one trunk, one branch per row, green where that row is fine for this action,
   amber or red (the row's own colour) where it is the reason it is blocked.
 * **Web hub**: the same rail and checks plus a connectivity list (this page, hub, laptop, Teensy, motor,
