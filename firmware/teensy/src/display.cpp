@@ -32,7 +32,7 @@ bool display_begin() {
 static const char* state_name(uint8_t cs) {
     switch (cs) {
     case CS_REST: return "REST"; case CS_HOLD: return "HOLD"; case CS_TRAJ: return "TRAJ";
-    case CS_JOY: return "JOY";   case CS_TEST: return "TEST"; case CS_FREESPIN: return "FREE";
+    case CS_TEST: return "TEST"; case CS_FREESPIN: return "FREE";
     case CS_CALIB: return "CAL"; case CS_TRIPPED: return "TRIP"; default: return "?";
     }
 }
@@ -57,11 +57,11 @@ static const char* cal_name(uint8_t c) {
 }
 
 static void draw_groups(const HealthSnapshot& s) {
-    HealthGroup g[6]; health_groups(s, g);
+    HealthGroup g[HEALTH_GROUPS]; health_groups(s, g);
     const bool blink = (millis() / 250) & 1;
     u8g2.setFont(u8g2_font_5x8_tr);
-    for (int i = 0; i < 6; i++) {
-        const int x = i * 21, w = 20, h = 11;
+    for (int i = 0; i < HEALTH_GROUPS; i++) {
+        const int x = i * 26, w = 24, h = 11;
         char txt[4];
         if (g[i].state == HS_OK)            snprintf(txt, sizeof txt, "%c", g[i].letter);
         else if (g[i].state == HS_UNKNOWN)  snprintf(txt, sizeof txt, "%c?", g[i].letter);

@@ -80,4 +80,4 @@ turns Ku/Tu into Ziegler–Nichols / Pessen / steering-conservative proposals.
 
 `capture.json` stores `start_server_ms` (phone's estimate of the laptop clock when the camera started,
 using the NTP-style offset) and `video_start_rel_s` = offset into the recording. IMU rows are already
-on the recording's time base. Expect ±(jitter) ms; the phone reports its sync jitter as node F4.
+on the recording's time base. Expect ±(jitter) ms; the phone reports its sync jitter as node D4.

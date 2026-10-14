@@ -6,7 +6,7 @@ python -m steering <command>
   server [--data DIR]                             headless: link + hub only (no UI)
   reindex [--data DIR]                            rebuild the recording catalog from meta.json files
   docs-health                                     print docs/HEALTH.md content from health/model.py
-  flash teensy|arduino [--env ENV]                pio run -t upload in the right folder
+  flash                                           pio run -t upload for the Teensy
 """
 from __future__ import annotations
 
@@ -81,8 +81,8 @@ def cmd_docs_health(args):
 
 
 def cmd_flash(args):
-    folder = ROOT / "firmware" / ("teensy" if args.target == "teensy" else "arduino_bridge")
-    cmd = ["pio", "run", "-t", "upload"] + (["-e", args.env] if args.env else [])
+    folder = ROOT / "firmware" / "teensy"
+    cmd = ["pio", "run", "-t", "upload"]
     print(" ".join(cmd), "in", folder)
     sys.exit(subprocess.call(cmd, cwd=folder))
 
@@ -96,7 +96,7 @@ def main(argv=None):
     s = sub.add_parser("server"); s.add_argument("--data"); s.add_argument("--sim", action="store_true")
     r = sub.add_parser("reindex"); r.add_argument("--data")
     sub.add_parser("docs-health")
-    f = sub.add_parser("flash"); f.add_argument("target", choices=["teensy", "arduino"]); f.add_argument("--env")
+    sub.add_parser("flash")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
     {"ui": cmd_ui, "server": cmd_server, "reindex": cmd_reindex, "docs-health": cmd_docs_health, "flash": cmd_flash,

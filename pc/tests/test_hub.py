@@ -12,10 +12,17 @@ from steering.core.app import App
 from steering.sim import SimTransport
 
 
+def _free_port():
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 @pytest.fixture
 def app(tmp_path):
     a = App(tmp_path / "data")
-    a.settings.server_port = 18765
+    a.settings.server_port = _free_port()
     a.start(SimTransport(realtime=4.0))
     a.start_server()
     t0 = time.monotonic()
@@ -31,11 +38,12 @@ def test_hub_roundtrip(app, tmp_path):
     import urllib.request
     import websockets
 
-    st = json.loads(urllib.request.urlopen("http://127.0.0.1:18765/status", timeout=5).read())
+    port = app.settings.server_port
+    st = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/status", timeout=5).read())
     assert st["ctrl_state"] == "REST"
 
     async def phone():
-        async with websockets.connect("ws://127.0.0.1:18765/ws") as ws:
+        async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
             hello = json.loads(await ws.recv())
             assert hello["type"] == "hello"
             await ws.send(json.dumps({"type": "ping", "t0": time.time() * 1000}))
@@ -70,9 +78,35 @@ def test_hub_roundtrip(app, tmp_path):
     body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"v\"\r\n"
             f"Content-Type: video/webm\r\n\r\nFAKEVIDEO\r\n--{boundary}--\r\n").encode()
     req = urllib.request.Request(
-        f"http://127.0.0.1:18765/capture/upload?uid={rec.uid}&start_server_ms={rec.created_at * 1000 + 250}",
+        f"http://127.0.0.1:{port}/capture/upload?uid={rec.uid}&start_server_ms={rec.created_at * 1000 + 250}",
         data=body, method="POST", headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
     j = json.loads(urllib.request.urlopen(req, timeout=5).read())
     assert j["ok"] and abs(j["video_start_rel_s"] - 0.25) < 1e-3
     assert (rec.dir / "video.webm").read_bytes() == b"FAKEVIDEO"
     assert app.store.get(rec.uid).has_video
+
+
+def test_web_api(app):
+    import urllib.request
+    base = f"http://127.0.0.1:{app.settings.server_port}"
+    get = lambda p: json.loads(urllib.request.urlopen(base + p, timeout=5).read())
+    assert urllib.request.urlopen(base + "/", timeout=5).status == 200          # browser UI
+    assert urllib.request.urlopen(base + "/phone", timeout=5).status == 200     # phone page
+    hl = get("/api/health")
+    assert {g["id"] for g in hl["groups"]} == {"M", "S", "T", "C", "D"} and len(hl["nodes"]) == 23
+    rec = app.controller.record_start("web-test")
+    time.sleep(0.4)
+    app.controller.record_stop()
+    recs = get("/api/recordings")
+    assert recs["recordings"][0]["name"] == "web-test"
+    uid = recs["recordings"][0]["uid"]
+    d = get(f"/api/recordings/{uid}/data")
+    assert d["n"] > 0 and "position_deg" in d["columns"]
+    req = urllib.request.Request(f"{base}/api/recordings/{uid}", data=json.dumps({"pinned": True, "tags": "x,y"}).encode(),
+                                 headers={"content-type": "application/json"}, method="POST")
+    assert json.loads(urllib.request.urlopen(req).read())["pinned"] is True
+    assert app.store.get(uid).tags == ["x", "y"]
+    docs = get("/api/docs")
+    assert any(x["id"] == "HEALTH" for x in docs["docs"])
+    assert "<h1" in get("/api/docs/HEALTH")["html"]
+    assert urllib.request.urlopen(base + "/diagrams/01_system_overview.svg", timeout=5).status == 200

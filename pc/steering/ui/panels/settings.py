@@ -30,34 +30,36 @@ class SettingsPanel:
     def build(self):
         g = self.ui.gate
         s = self.app.settings
-        dpg.add_text("MOTOR / CAN", color=T.ACCENT)
+        T.section("Motor / CAN")
         with dpg.group(horizontal=True):
             self.tags["mid"] = dpg.add_input_int(label="motor CAN id", default_value=2, width=100)
-            b = dpg.add_button(label="Set id", width=80, callback=safe(lambda: self.c.set_motor_id(dpg.get_value(self.tags["mid"]))))
+            dpg.bind_item_theme(self.tags["mid"], T.theme("input")); T.bind_font(self.tags["mid"], "mono")
+            b = T.action("Set id", "neutral", safe(lambda: self.c.set_motor_id(dpg.get_value(self.tags["mid"]))), 80)
             g.bind(b, "can_scan", "Only in REST.")
-            b = dpg.add_button(label="Scan bus (1-127)", width=150, callback=safe(self.c.can_scan))
+            b = T.action("Scan bus (1-127)", "neutral", safe(self.c.can_scan), 150)
             g.bind(b, "can_scan", "Pings every id with a zero-torque frame (~1 s, REST only).")
-            self.tags["scan"] = dpg.add_text("", color=T.DIM)
+            self.tags["scan"] = T.mono_text("", color=T.DIM)
         dpg.add_spacer(height=10)
-        dpg.add_text("DEVICE HUB (phones, other devices)", color=T.ACCENT)
+        T.section("Web hub  -  browser UI, phones, planner")
         with dpg.group(horizontal=True):
-            self.tags["srv"] = dpg.add_checkbox(label="run hub", default_value=s.server_enabled, callback=safe(self._server))
+            self.tags["srv"] = T.toggle("run hub", s.server_enabled, safe(self._server))
             self.tags["port"] = dpg.add_input_int(label="port", default_value=s.server_port, width=100)
-            self.tags["srv_status"] = dpg.add_text("", color=T.DIM)
-        dpg.add_checkbox(label="allow remote control (planner setpoint stream, enable/zero from clients)",
-                         default_value=s.allow_remote_control, callback=safe(self._pref("allow_remote_control")))
-        dpg.add_text("On the phone (same Wi-Fi), open:", color=T.DIM)
-        self.tags["url"] = dpg.add_text(f"http://{_lan_ip()}:{s.server_port}/")
+            dpg.bind_item_theme(self.tags["port"], T.theme("input")); T.bind_font(self.tags["port"], "mono")
+            self.tags["srv_status"] = T.mono_text("", color=T.DIM)
+        T.toggle("allow remote control (planner setpoint stream, enable/zero from clients)",
+                 s.allow_remote_control, safe(self._pref("allow_remote_control")))
+        h = dpg.add_text("Open in a browser (laptop) or on the phone (same Wi-Fi):", color=T.DIM); T.bind_font(h, "small")
+        self.tags["url"] = T.mono_text(f"http://{_lan_ip()}:{s.server_port}/", bold=True)
         dpg.add_spacer(height=10)
-        dpg.add_text("DATA", color=T.ACCENT)
-        dpg.add_text(f"folder: {self.app.root.resolve()}", wrap=900)
+        T.section("Data")
+        T.mono_text(f"folder: {self.app.root.resolve()}", wrap=900, color=T.DIM)
         with dpg.group(horizontal=True):
-            dpg.add_button(label="Rebuild catalog from disk", width=220, callback=safe(self._reindex))
-            dpg.add_button(label="Open logs folder", width=160, callback=safe(self._open_logs))
+            T.action("Rebuild catalog from disk", "neutral", safe(self._reindex), 220)
+            T.action("Open logs folder", "ghost", safe(self._open_logs), 160)
         dpg.add_spacer(height=10)
-        dpg.add_text("UI", color=T.ACCENT)
-        dpg.add_checkbox(label="auto-connect to last port on start", default_value=s.auto_connect, callback=safe(self._pref("auto_connect")))
-        dpg.add_checkbox(label="show synthetic generators expanded", default_value=s.show_generators, callback=safe(self._pref("show_generators")))
+        T.section("UI")
+        T.toggle("auto-connect to last port on start", s.auto_connect, safe(self._pref("auto_connect")))
+        T.toggle("show synthetic generators expanded", s.show_generators, safe(self._pref("show_generators")))
 
     def _pref(self, key):
         def f(sender, value):

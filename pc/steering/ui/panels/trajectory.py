@@ -19,29 +19,30 @@ class TrajectoryPanel:
 
     def build(self):
         g = self.ui.gate
-        dpg.add_text("RECORD A STEERING MOTION BY HAND", color=T.DIM)
-        dpg.add_text("1. Enable -> Free-spin   2. Record   3. turn the wheel   4. Stop   -> it appears in Playback & Library.", wrap=900)
+        T.section("Record a steering motion by hand")
+        h = dpg.add_text("1. Enable -> Free-spin   2. Record   3. turn the wheel   4. Stop   -> it appears in Playback & Library.", wrap=900, color=T.DIM)
+        T.bind_font(h, "small")
         with dpg.group(horizontal=True):
-            self.tags["fs_name"] = dpg.add_input_text(default_value="hand-motion", width=200, hint="name")
-            b = dpg.add_button(label="Free-spin + Record", width=180, callback=safe(self._free_record))
+            self.tags["fs_name"] = T.text_input("hand-motion", 200, "name")
+            b = T.action("Free-spin + Record", "warn", safe(self._free_record), 180)
             g.bind(b, "freespin_on", "Enters free-spin (zero torque) and starts recording the wheel position.")
-            dpg.bind_item_theme(b, T.theme("btn_warn"))
-            b = dpg.add_button(label="Stop + Re-grip", width=150, callback=safe(self._stop_regrip))
+            b = T.action("Stop + Re-grip", "neutral", safe(self._stop_regrip), 150)
             g.bind(b, "stop_record")
         dpg.add_spacer(height=10)
-        dpg.add_text("STREAM STATUS", color=T.DIM)
-        self.tags["stream"] = dpg.add_text("idle")
+        T.section("Stream status")
+        self.tags["stream"] = T.mono_text("idle")
         self.tags["progress"] = dpg.add_progress_bar(default_value=0.0, width=500)
-        b = dpg.add_button(label="Stop stream", width=150, callback=safe(self.c.stop_all)); g.bind(b, "stop_stream")
+        b = T.action("Stop stream", "bad", safe(self.c.stop_all), 150); g.bind(b, "stop_stream")
         dpg.add_spacer(height=10)
         with dpg.collapsing_header(label="Synthetic generators (tuning aids)", default_open=self.app.settings.show_generators):
-            dpg.add_text("Useful for evaluating tracking; not the main workflow.", color=T.DIM)
+            h2 = dpg.add_text("Useful for evaluating tracking; not the main workflow.", color=T.DIM)
+            T.bind_font(h2, "small")
             with dpg.group(horizontal=True):
                 self.tags["gen"] = dpg.add_combo(list(GENERATOR_PARAMS), default_value="sine", width=140,
                                                  callback=safe(self._gen_changed))
-                b = dpg.add_button(label="Run (auto-records)", width=160, callback=safe(self._run_gen))
+                dpg.bind_item_theme(self.tags["gen"], T.theme("input"))
+                b = T.action("Run (auto-records)", "accent", safe(self._run_gen), 170)
                 g.bind(b, "trajectory", "Streams the waveform at 200 Hz; recording starts and stops automatically.")
-                dpg.bind_item_theme(b, T.theme("btn_accent"))
             with dpg.group(tag="gen_params"):
                 pass
             with dpg.plot(height=220, width=600, tag="gen_preview", no_title=True):
@@ -56,8 +57,7 @@ class TrajectoryPanel:
         self.tags["params"] = {}
         with dpg.group(horizontal=True, parent="gen_params"):
             for k, v in GENERATOR_PARAMS[name].items():
-                self.tags["params"][k] = dpg.add_input_float(label=k, default_value=v, width=90, step=0, format="%.2f",
-                                                             callback=safe(self._preview))
+                self.tags["params"][k] = T.number(k, v, 90, "%.2f", callback=safe(self._preview))
         self._preview()
 
     def _params(self):

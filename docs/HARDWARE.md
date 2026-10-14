@@ -1,7 +1,7 @@
 # Hardware & electrical system
 
-Hardware is **identical to the previous build**. Pins are the single source of truth in
-`firmware/teensy/src/config.h` and the top of `firmware/arduino_bridge/src/main.cpp`.
+Hardware is **identical to the previous build** minus the Arduino joystick/RF bridge, which is no longer
+part of the system. Pins are the single source of truth in `firmware/teensy/src/config.h`.
 
 ![electrical](diagrams/08_electrical.svg)
 
@@ -13,9 +13,9 @@ Hardware is **identical to the previous build**. Pins are the single source of t
   concepts are design options only.
 * **CCM** (controls & communication module) — the Teensy 4.1 enclosure with the 2.42" OLED and the
   controls: *take control* (= the idle switch on pin 22), *emergency stop* (cuts motor power — not
-  seen by the firmware except as A4 "replies lost"), *power cycle*. Carries the battery.
+  seen by the firmware except as M4 "replies lost"), *power cycle*. Carries the battery.
 * **Actuation module** (block diagram on the site): battery · motor · MCU (Teensy) · reaction torque
-  mechanism · IMU (optional, not fitted in this build — see ROADMAP) · wireless transceiver (NRF24).
+  mechanism · IMU (optional, not fitted in this build — see ROADMAP).
 
 ## Which motor?
 
@@ -30,17 +30,16 @@ must be verified on hardware (MIGRATION.md). Steering requirement from the site:
 | Rail | Source | Loads | Notes |
 |---|---|---|---|
 | 24 V DC | bench / vehicle supply | BM-18 (XT30: − left, + right as marked on the actuator) | BM-18: 15 A rated, 40 A peak; firmware current protection on the motor board is 35 A / 200 ms. Size wiring and fusing for 40 A transients. |
-| 5 V USB | laptop | Teensy 4.1 (+ OLED, NRF24 via its 3.3 V regulator) | A charge-only cable looks like "D2 silent" in the health tree. |
-| 5 V USB / 9 V | laptop or battery | Arduino Uno (+ OLED, NRF24) | NRF24 wants a 10–100 µF cap across its 3.3 V pins. |
+| 5 V USB | laptop | Teensy 4.1 (+ OLED via its 3.3 V regulator) | A charge-only cable looks like "C2 silent" in the health tree. |
 
 There is no bus-voltage sense on the Teensy, so "motor powered" is inferred from CAN replies
-(node **A4**). If you add an ADC divider later, make it node A7.
+(node **M4**). If you add an ADC divider later, make it node A7.
 
 ## CAN bus
 
 * BM-18 ↔ transceiver ↔ Teensy **CAN3** (`CRX3` pin 30, `CTX3` pin 31), 1 Mbps, standard 11-bit ids.
 * Motor id **0x02** (`MOTOR_CAN_ID_DEFAULT`); changeable at run time with `CMD_SET_MOTOR_ID` (REST only) and discoverable with the scanner (Settings → Scan bus).
-* 120 Ω termination at both physical ends. Error counters (TEC/REC) and fault confinement are read directly from the FlexCAN3 registers and surfaced as node **A1**.
+* 120 Ω termination at both physical ends. Error counters (TEC/REC) and fault confinement are read directly from the FlexCAN3 registers and surfaced as node **M1**.
 * The actuator's CAN connector is a keyed JST — note the notch orientation in the datasheet photo (CAN_L is the pin away from the notch, CAN_H next to it).
 * The datasheet's "debug port 1/2" (USB-ish serial at 921600 8N1, ST-LINK pads) is the motor's own CLI (`m c s e z p` commands) used for the motor's internal encoder calibration — not used by this firmware, but see OPERATIONS → "motor won't give sane data".
 
@@ -48,21 +47,11 @@ There is no bus-voltage sense on the Teensy, so "motor powered" is inferred from
 
 | Pin | Function | Node |
 |---|---|---|
-| 30 / 31 | CAN3 RX / TX → transceiver (STBY tied low) | A1–A5 |
-| 18 / 19 | I2C SDA / SCL → SSD1309 2.42" OLED @0x3C | C4 |
-| 9 / 10 | NRF24 CE / CSN; SPI0 MOSI 11, MISO 12, SCK 13 | E1 |
-| 22 | **Idle switch** to GND, `INPUT_PULLUP`. LOW = closed = **ARMED**; open/broken wire = IDLE (fail-safe) | B1 |
-| 13 | on-board LED heartbeat (wired mode only; shared with SCK) | — |
-| USB | PC link 2 Mbps | D1–D6 |
-
-## Arduino Uno (bridge)
-
-| Pin | Function |
-|---|---|
-| 9 / 10 (HW SPI) | NRF24 CE / CSN |
-| A4 / A5 | I2C → SSD1306 0.96" OLED @0x3C |
-| A2 / A1 / D3 | joystick X / Y / button (pull-up) |
-| USB | optional: BridgeStatus to the PC; in `uno_bridge` env also forwards PC↔Teensy frames |
+| 30 / 31 | CAN3 RX / TX → transceiver (STBY tied low) | M1–M5 |
+| 18 / 19 | I2C SDA / SCL → SSD1309 2.42" OLED @0x3C | T4 |
+| 22 | **Idle switch** to GND, `INPUT_PULLUP`. LOW = closed = **ARMED**; open/broken wire = IDLE (fail-safe) | S1 |
+| 13 | on-board LED heartbeat | — |
+| USB | PC link 2 Mbps | C1–C6 |
 
 ## BM-series facts used by the firmware (datasheet 优宝特 BM-18 / BM-24 / BM-48)
 

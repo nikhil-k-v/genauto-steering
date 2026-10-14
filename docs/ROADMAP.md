@@ -5,7 +5,7 @@
 * **Hardware verification** of the v2 firmware per `MIGRATION.md`; tune `CAL_*` on the real column.
 * **Torque-scale self-check**: at enable, command a tiny known torque against the stops and compare
   the reply current; warn (node A7) if the implied scale is off by > 1.5×.
-* **Bus-voltage sense** (one resistor divider on an ADC pin) → node A7 "motor power" so "motor off"
+* **Bus-voltage sense** (one resistor divider on an ADC pin) → node M7 "motor power" so "motor off"
   is observed rather than inferred.
 * Second phone / multiple capture clients; per-client offsets already stored.
 
@@ -29,7 +29,7 @@
   "Instructed Reinforcement Learning Control of Safe Autonomous J-Turn Vehicle Maneuvers" (AIM 2021).
 * **IMU on the actuator** (BNO08x was stubbed in MotorControlWebGUI): absolute wheel angle independent
   of the encoder for the angle loop on the project page; log it as an extra column and use it to
-  detect coupling slip (encoder vs IMU disagreement → new health node).
+  detect coupling slip (encoder vs IMU disagreement → new health node M7).
 * Replay of a logged vehicle run with video overlay (phone video already time-aligned).
 
 ## UX
@@ -37,4 +37,4 @@
 * Health panel: click a node → shows the actions it blocks live (already in the table) and a "test this
   link" button where applicable (CAN scan, ping round trip).
 * Library: compare two recordings side by side (overlay plots + metric deltas).
-* Optional NRF24 telemetry mirroring at full rate for the bridge OLED dial (currently 20 Hz).
+* Web UI: compare two recordings (overlay traces + metric deltas); live traces in the browser.

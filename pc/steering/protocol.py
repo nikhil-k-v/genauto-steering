@@ -11,7 +11,7 @@ import ctypes as C
 from dataclasses import dataclass
 from typing import Optional
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 
 FRAME_SYNC0 = 0xAB
 FRAME_SYNC1 = 0xCD
@@ -31,16 +31,21 @@ PKT_COMMAND       = 0xC1
 PKT_TEST_START    = 0xC2
 PKT_HEARTBEAT     = 0xC3
 PKT_LIMITS        = 0xC4
-PKT_JOYSTICK      = 0xD1
-PKT_BRIDGE_STATUS = 0xD2
 
 # ---- controller states -------------------------------------------------------
-CS_REST, CS_HOLD, CS_TRAJ, CS_JOY, CS_TEST, CS_FREESPIN, CS_CALIB, CS_TRIPPED = range(8)
-CS_NAMES = {CS_REST: "REST", CS_HOLD: "HOLD", CS_TRAJ: "TRAJ", CS_JOY: "JOYSTICK",
-            CS_TEST: "TEST", CS_FREESPIN: "FREE-SPIN", CS_CALIB: "CALIBRATING", CS_TRIPPED: "TRIPPED"}
-CS_ENABLED = {CS_HOLD, CS_TRAJ, CS_JOY, CS_TEST, CS_FREESPIN, CS_CALIB}
+CS_REST, CS_HOLD, CS_TRAJ, CS_TEST, CS_FREESPIN, CS_CALIB, CS_TRIPPED = range(7)
+CS_NAMES = {CS_REST: "REST", CS_HOLD: "HOLD", CS_TRAJ: "FOLLOWING", CS_TEST: "TEST",
+            CS_FREESPIN: "FREE-SPIN", CS_CALIB: "CALIBRATING", CS_TRIPPED: "TRIPPED"}
+CS_EXPLAIN = {CS_REST: "motor off (MOSFETs open); wheel turns freely",
+              CS_HOLD: "FOC on, holding the setpoint (slider / hold-here)",
+              CS_TRAJ: "FOC on, following the 200 Hz setpoint stream from the PC",
+              CS_TEST: "FOC on, running a step/relay test on the Teensy",
+              CS_FREESPIN: "FOC on with zero gains/torque: backdrivable, records hand motion",
+              CS_CALIB: "end-stop calibration routine running on the Teensy",
+              CS_TRIPPED: "a safety trip is latched; motor resting until Clear trip"}
+CS_ENABLED = {CS_HOLD, CS_TRAJ, CS_TEST, CS_FREESPIN, CS_CALIB}
 
-MODE_AUTO, MODE_HOLD, MODE_TRAJ, MODE_JOY, MODE_FREESPIN = range(5)
+MODE_AUTO, MODE_HOLD, MODE_TRAJ, MODE_FREESPIN = range(4)
 
 # ---- commands ----------------------------------------------------------------
 CMD_ENABLE         = 0x01
@@ -95,8 +100,8 @@ CAL_NAMES = {CAL_IDLE: "idle", CAL_SEEK_LEFT: "Seeking left stop", CAL_CONFIRM_L
 
 # ---- firmware health nodes -----------------------------------------------------
 HN_CAN_CTRL, HN_CAN_TX, HN_CAN_RX_ANY, HN_CAN_MOTOR, HN_MOTOR_DATA, HN_MOTOR_CURRENT, HN_SWITCH, HN_TRIP, \
-    HN_ISR, HN_CTRL_READY, HN_CALIB, HN_PC_LINK, HN_BRIDGE_LINK, HN_OLED = range(14)
-HN_COUNT = 14
+    HN_ISR, HN_CTRL_READY, HN_CALIB, HN_OLED, HN_PC_LINK = range(13)
+HN_COUNT = 13
 HS_UNKNOWN, HS_OK, HS_BLOCKED, HS_FAIL = range(4)
 
 # ---- events --------------------------------------------------------------------
@@ -107,10 +112,9 @@ EV_NAMES = {EV_BOOT: "boot", EV_TRIP: "trip", EV_STATE: "state", EV_CMD_ACCEPTED
             EV_ZERO_SET: "zero_set", EV_TEST_DONE: "test_done", EV_WARNING: "warning"}
 
 # ---- flag bits ---------------------------------------------------------------
-TF_ENABLED, TF_ZEROED, TF_AT_LIMIT, TF_SWITCH_ARMED, TF_TEST_RUNNING, TF_LIMITS_VALID, TF_FREESPIN, TF_JOY_PRESENT = \
-    (1 << i for i in range(8))
+TF_ENABLED, TF_ZEROED, TF_AT_LIMIT, TF_SWITCH_ARMED, TF_TEST_RUNNING, TF_LIMITS_VALID, TF_FREESPIN = \
+    (1 << i for i in range(7))
 HB_RECORDING, HB_UI_ALIVE, HB_SERVER_UP, HB_PHONE_CAPTURE = (1 << i for i in range(4))
-BS_RF_TEENSY, BS_USB_PC, BS_JOY_PRESENT, BS_TELEM_SEEN = (1 << i for i in range(4))
 
 
 # ==============================================================================
@@ -138,7 +142,7 @@ class HealthPacket(_P):
                 ("t_ms", C.c_uint32), ("node_states", C.c_uint32), ("can_rx_motor_hz", C.c_uint16),
                 ("can_rx_other_hz", C.c_uint16), ("can_tec", C.c_uint8), ("can_rec", C.c_uint8),
                 ("can_bus_state", C.c_uint8), ("isr_overruns", C.c_uint8), ("loop_hz", C.c_uint16),
-                ("pc_hb_age_ms", C.c_uint16), ("bridge_age_ms", C.c_uint16), ("motor_age_ms", C.c_uint16)]
+                ("pc_hb_age_ms", C.c_uint16), ("reserved", C.c_uint16), ("motor_age_ms", C.c_uint16)]
 
     def node(self, i: int) -> int:
         return (self.node_states >> (2 * i)) & 0x3
@@ -194,26 +198,17 @@ class LimitsPacket(_P):
     _fields_ = [("type", C.c_uint8), ("reserved", C.c_uint8 * 3), ("left_deg", C.c_float), ("right_deg", C.c_float)]
 
 
-class JoystickPacket(_P):
-    _fields_ = [("type", C.c_uint8), ("buttons", C.c_uint8), ("x", C.c_int16), ("y", C.c_int16), ("t_ms", C.c_uint32)]
-
-
-class BridgeStatusPacket(_P):
-    _fields_ = [("type", C.c_uint8), ("bits", C.c_uint8), ("rf_rx_hz", C.c_uint8), ("reserved", C.c_uint8),
-                ("t_ms", C.c_uint32)]
-
 
 PACKET_CLASSES = {
     PKT_TELEMETRY: TelemetryPacket, PKT_HEALTH: HealthPacket, PKT_CONFIG_ECHO: ConfigEchoPacket,
     PKT_EVENT: EventPacket, PKT_CAN_SCAN: CanScanPacket, PKT_GAINS: GainsPacket, PKT_SETPOINT: SetpointPacket,
     PKT_MODE_REQUEST: ModeRequestPacket, PKT_COMMAND: CommandPacket, PKT_TEST_START: TestStartPacket,
-    PKT_HEARTBEAT: HeartbeatPacket, PKT_LIMITS: LimitsPacket, PKT_JOYSTICK: JoystickPacket,
-    PKT_BRIDGE_STATUS: BridgeStatusPacket,
+    PKT_HEARTBEAT: HeartbeatPacket, PKT_LIMITS: LimitsPacket,
 }
 EXPECTED_SIZES = {
     "TelemetryPacket": 28, "HealthPacket": 28, "ConfigEchoPacket": 28, "EventPacket": 28, "CanScanPacket": 18,
     "GainsPacket": 20, "SetpointPacket": 16, "ModeRequestPacket": 4, "CommandPacket": 8, "TestStartPacket": 16,
-    "HeartbeatPacket": 8, "LimitsPacket": 12, "JoystickPacket": 10, "BridgeStatusPacket": 8,
+    "HeartbeatPacket": 8, "LimitsPacket": 12,
 }
 for _cls in PACKET_CLASSES.values():
     assert C.sizeof(_cls) == EXPECTED_SIZES[_cls.__name__], f"{_cls.__name__} size mismatch"

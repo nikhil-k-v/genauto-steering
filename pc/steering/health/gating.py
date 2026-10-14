@@ -119,52 +119,51 @@ def need(cond: Callable[[GateContext], bool], reason: str) -> Req:
     return f
 
 
-LINK_UP = [node("D1"), node("D2"), node("D3"), node("D4"), node("D5"), node("D6")]
-MOTOR_UP = [node("A1"), node("A3"), node("A4"), node("A5")]
-SAFE = [node("B1"), node("B2")]
+LINK_UP = [node("C1"), node("C2"), node("C3"), node("C4"), node("C5"), node("C6")]
+MOTOR_UP = [node("M1"), node("M3"), node("M4"), node("M5")]
+SAFE = [node("S1"), node("S2")]
 
 # action key -> (label, requirements)
 ACTIONS: Dict[str, Tuple[str, List[Req]]] = {
     "connect":        ("Connect", []),
-    "disconnect":     ("Disconnect", [node("D1")]),
-    "enable":         ("Enable motor", LINK_UP + MOTOR_UP + SAFE + [node("C1"),
+    "disconnect":     ("Disconnect", [node("C1")]),
+    "enable":         ("Enable motor", LINK_UP + MOTOR_UP + SAFE + [node("T1"),
                         state_in(P.CS_REST, what="motor must be in REST (already enabled, or tripped?)")]),
-    "disable":        ("Disable motor", [node("D1"), node("D5"), state_not(P.CS_REST, what="already resting")]),
-    "clear_trip":     ("Clear trip", [node("D1"), node("D5"), state_in(P.CS_TRIPPED, what="no trip latched")]),
-    "set_zero":       ("Set zero here", LINK_UP + [node("A4"), node("A5"),
+    "disable":        ("Disable motor", [node("C1"), node("C5"), state_not(P.CS_REST, what="already resting")]),
+    "clear_trip":     ("Clear trip", [node("C1"), node("C5"), state_in(P.CS_TRIPPED, what="no trip latched")]),
+    "set_zero":       ("Set zero here", LINK_UP + [node("M4"), node("M5"),
                         state_not(P.CS_TRAJ, P.CS_TEST, P.CS_CALIB), not_busy()]),
-    "freespin_on":    ("Free-spin", LINK_UP + MOTOR_UP + SAFE + [state_in(P.CS_REST, P.CS_HOLD, P.CS_JOY), not_busy()]),
-    "freespin_off":   ("Re-grip", [node("D1"), node("D5"), state_in(P.CS_FREESPIN, what="not in free-spin")]),
-    "set_gains":      ("Apply gains", [node("D1"), node("D5")]),
-    "slider":         ("Setpoint slider", LINK_UP + [flag(P.TF_ZEROED, "zero must be set (Calibration panel)", "C2"),
+    "freespin_on":    ("Free-spin", LINK_UP + MOTOR_UP + SAFE + [state_in(P.CS_REST, P.CS_HOLD), not_busy()]),
+    "freespin_off":   ("Re-grip", [node("C1"), node("C5"), state_in(P.CS_FREESPIN, what="not in free-spin")]),
+    "set_gains":      ("Apply gains", [node("C1"), node("C5")]),
+    "slider":         ("Setpoint slider", LINK_UP + [flag(P.TF_ZEROED, "zero must be set (Calibration panel)", "T2"),
                         state_in(P.CS_HOLD, what="slider only drives HOLD; enable the motor first"), not_busy()]),
-    "hold_here":      ("Hold here", [node("D1"), node("D5"), state_in(P.CS_TRAJ, P.CS_JOY, P.CS_HOLD)]),
-    "trajectory":     ("Run trajectory", LINK_UP + MOTOR_UP + SAFE + [node("C1"), node("C2"), node("C3"), node("A6"),
-                        node("F1"), node("F2"), node("F5"),
-                        state_in(P.CS_HOLD, what="motor must be enabled and holding (not free-spin / joystick / calibrating)"),
+    "hold_here":      ("Hold here", [node("C1"), node("C5"), state_in(P.CS_TRAJ, P.CS_HOLD)]),
+    "trajectory":     ("Run trajectory", LINK_UP + MOTOR_UP + SAFE + [node("T1"), node("T2"), node("T3"), node("M6"),
+                        node("D1"), node("D2"), node("D5"),
+                        state_in(P.CS_HOLD, what="motor must be enabled and holding (not free-spin / calibrating)"),
                         not_busy()]),
-    "playback":       ("Play back recording", LINK_UP + MOTOR_UP + SAFE + [node("C1"), node("C2"), node("C3"), node("A6"),
-                        node("F1"), node("F2"), node("F5"),
-                        state_in(P.CS_HOLD, what="motor must be enabled and holding (not free-spin / joystick / calibrating)"),
+    "playback":       ("Play back recording", LINK_UP + MOTOR_UP + SAFE + [node("T1"), node("T2"), node("T3"), node("M6"),
+                        node("D1"), node("D2"), node("D5"),
+                        state_in(P.CS_HOLD, what="motor must be enabled and holding (not free-spin / calibrating)"),
                         not_busy(), need(lambda c: c.has_recording_selected, "select a recording")]),
-    "tests":          ("Run tuning test", LINK_UP + MOTOR_UP + SAFE + [node("C1"), node("C2"), node("C3"), node("A6"),
-                        node("F1"), node("F2"),
+    "tests":          ("Run tuning test", LINK_UP + MOTOR_UP + SAFE + [node("T1"), node("T2"), node("T3"), node("M6"),
+                        node("D1"), node("D2"),
                         state_in(P.CS_HOLD, what="motor must be enabled and holding"), not_busy()]),
-    "record":         ("Record", [node("D1"), node("D4"), node("F2"), need(lambda c: not c.recording, "already recording")]),
+    "record":         ("Record", [node("C1"), node("C4"), node("D2"), need(lambda c: not c.recording, "already recording")]),
     "stop_record":    ("Stop recording", [need(lambda c: c.recording, "not recording")]),
-    "record_freespin":("Record wheel motion (free-spin)", LINK_UP + [node("F2"), state_in(P.CS_FREESPIN,
+    "record_freespin":("Record wheel motion (free-spin)", LINK_UP + [node("D2"), state_in(P.CS_FREESPIN,
                         what="turn on free-spin to record hand motion"), need(lambda c: not c.recording, "already recording")]),
-    "calibrate":      ("Auto-calibrate end stops", LINK_UP + MOTOR_UP + SAFE + [node("C1"),
+    "calibrate":      ("Auto-calibrate end stops", LINK_UP + MOTOR_UP + SAFE + [node("T1"),
                         state_in(P.CS_REST, P.CS_HOLD, P.CS_FREESPIN, what="not while trajectory/test/calibration"), not_busy()]),
-    "calib_abort":    ("Abort calibration", [node("D1"), state_in(P.CS_CALIB, what="not calibrating")]),
-    "capture_limits": ("Capture end stop", LINK_UP + [node("A4"), node("A5"), state_not(P.CS_TRAJ, P.CS_TEST, P.CS_CALIB)]),
+    "calib_abort":    ("Abort calibration", [node("C1"), state_in(P.CS_CALIB, what="not calibrating")]),
+    "capture_limits": ("Capture end stop", LINK_UP + [node("M4"), node("M5"), state_not(P.CS_TRAJ, P.CS_TEST, P.CS_CALIB)]),
     "go_center_zero": ("Go to center & zero", LINK_UP + MOTOR_UP + SAFE + [state_in(P.CS_REST, P.CS_HOLD, P.CS_FREESPIN), not_busy()]),
-    "joystick":       ("Joystick mode", LINK_UP + [node("E1"), state_in(P.CS_HOLD, P.CS_JOY)]),
-    "can_scan":       ("CAN scan", [node("D1"), node("D5"), state_in(P.CS_REST, what="scan only in REST")]),
-    "phone_capture":  ("Phone capture", [node("F3"), node("F4")]),
+    "can_scan":       ("CAN scan", [node("C1"), node("C5"), state_in(P.CS_REST, what="scan only in REST")]),
+    "phone_capture":  ("Phone capture", [node("D3"), node("D4")]),
     "stop_stream":    ("Stop", [need(lambda c: c.streaming, "nothing streaming")]),
-    "external_stream":("External setpoint stream (planner / remote)", LINK_UP + MOTOR_UP + SAFE + [node("C1"), node("C2"), node("C3"),
-                        node("A6"), node("F5"), state_in(P.CS_HOLD, P.CS_TRAJ, what="motor must be enabled and holding/following"),
+    "external_stream":("External setpoint stream (planner / remote)", LINK_UP + MOTOR_UP + SAFE + [node("T1"), node("T2"), node("T3"),
+                        node("M6"), node("D5"), state_in(P.CS_HOLD, P.CS_TRAJ, what="motor must be enabled and holding/following"),
                         need(lambda c: not c.streaming, "a local trajectory / playback is streaming")]),
 }
 
@@ -178,6 +177,21 @@ def can(action: str, ctx: GateContext) -> GateResult:
             reasons.append(reason)
             nodes.extend(n for n in nids if n not in nodes)
     return GateResult(not reasons, reasons, nodes)
+
+
+def required_nodes(action: str) -> List[str]:
+    """Every health node an action depends on (for the UI's connection lines)."""
+    from .model import GROUP_NODES, NODE_BY_ID
+    out: List[str] = []
+    for r in ACTIONS[action][1]:
+        for c in getattr(r, "__closure__", None) or ():
+            v = getattr(c, "cell_contents", None)
+            if isinstance(v, str):
+                if v in NODE_BY_ID and v not in out:
+                    out.append(v)
+                elif v in GROUP_NODES:
+                    out.extend(n.id for n in GROUP_NODES[v] if n.id not in out)
+    return out
 
 
 def affected_actions(node_id: str) -> List[str]:

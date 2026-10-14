@@ -52,7 +52,6 @@ class LiveState:
     last_rejection: str = ""
     last_rejection_t: float = 0.0
     can_scan_ids: list = field(default_factory=list)
-    joystick: Optional[P.JoystickPacket] = None
     pending_gains: Optional[dict] = None     # gains sent but not yet echoed back
 
     @property
@@ -82,7 +81,6 @@ class Controller:
         bus.subscribe("config", self._on_config)
         bus.subscribe("event", self._on_event)
         bus.subscribe("can_scan", lambda p: setattr(self.live, "can_scan_ids", list(p.ids[: p.count])))
-        bus.subscribe("joystick", lambda p: setattr(self.live, "joystick", p))
 
     # ---- inputs --------------------------------------------------------------------------
     def _on_telemetry(self, t):
@@ -180,10 +178,6 @@ class Controller:
         self.link.send(P.setpoint(self._ext_seq, pos_deg, vel_ff, int(time.monotonic() * 1000)))
         return r
 
-    def joystick_mode(self, on: bool):
-        self._gate("joystick")
-        self.link.send(P.mode_request(P.MODE_JOY if on else P.MODE_HOLD, sticky=True))
-
     def calibrate(self):
         self._gate("calibrate")
         self.link.send(P.command(P.CMD_CALIB_START))
@@ -212,8 +206,8 @@ class Controller:
         if t.ctrl_state not in (P.CS_HOLD, P.CS_TRAJ):
             return f"motor left TRAJ/HOLD ({P.CS_NAMES.get(t.ctrl_state)})"
         tree = self.live.tree
-        for nid in ("B1", "B2", "A4", "D5"):
-            if tree.nodes[nid].state == P.HS_FAIL or (nid in ("B1", "B2") and tree.nodes[nid].state == P.HS_BLOCKED):
+        for nid in ("S1", "S2", "M4", "C5"):
+            if tree.nodes[nid].state == P.HS_FAIL or (nid in ("S1", "S2") and tree.nodes[nid].state == P.HS_BLOCKED):
                 return f"{nid} {tree.nodes[nid].reason}"
         return None
 

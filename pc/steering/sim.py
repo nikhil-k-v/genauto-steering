@@ -22,11 +22,11 @@ from .link import Transport
 
 @dataclass
 class SimFaults:
-    motor_power: bool = True        # False -> no CAN replies (A4 BLOCKED/FAIL)
+    motor_power: bool = True        # False -> no CAN replies (M4 BLOCKED/FAIL)
     switch_armed: bool = True       # idle switch
-    can_bus_off: bool = False       # A1 FAIL
-    frozen_encoder: bool = False    # A5
-    heartbeat_deaf: bool = False    # Teensy ignores PC heartbeats (D5)
+    can_bus_off: bool = False       # M1 FAIL
+    frozen_encoder: bool = False    # M5
+    heartbeat_deaf: bool = False    # Teensy ignores PC heartbeats (C5)
     isr_overruns: int = 0
 
 
@@ -179,7 +179,7 @@ class SimTeensy:
         elif cmd == P.CMD_HOLD_HERE:
             if not self.enabled: return rej("motor not enabled")
             self.sp_target = self.rep_pos(); self.mode_req = P.MODE_HOLD
-            if self.cs in (P.CS_TRAJ, P.CS_JOY): self.set_state(P.CS_HOLD)
+            if self.cs == P.CS_TRAJ: self.set_state(P.CS_HOLD)
         elif cmd == P.CMD_CALIB_START:
             if self.cs == P.CS_TRIPPED: return rej("tripped: clear first")
             if not self.f.switch_armed: return rej("idle switch is IDLE")
@@ -385,7 +385,6 @@ class SimTeensy:
         setn(P.HN_CALIB, P.HS_FAIL if self.calib == P.CAL_FAILED else P.HS_BLOCKED if self.cs == P.CS_CALIB else P.HS_OK)
         hb_age = 0xFFFF if not self.pc_hb_last else min(0xFFFE, int((self.t - self.pc_hb_last) * 1000))
         setn(P.HN_PC_LINK, P.HS_UNKNOWN if hb_age == 0xFFFF else P.HS_FAIL if hb_age > 1000 else P.HS_OK)
-        setn(P.HN_BRIDGE_LINK, P.HS_UNKNOWN)
         setn(P.HN_OLED, P.HS_OK)
         motor_age = 0xFFFF if self.motor_last_reply < 0 else min(0xFFFE, int((self.t - self.motor_last_reply) * 1000))
         return P.HealthPacket(type=P.PKT_HEALTH, trip_code=self.trip, calib_stage=self.calib, ctrl_state=self.cs,
@@ -393,7 +392,7 @@ class SimTeensy:
                               can_rx_motor_hz=1000 if (alive and self.enabled) else 0, can_rx_other_hz=0,
                               can_tec=0, can_rec=0, can_bus_state=3 if self.f.can_bus_off else 0,
                               isr_overruns=self.f.isr_overruns, loop_hz=1000, pc_hb_age_ms=hb_age,
-                              bridge_age_ms=0xFFFF, motor_age_ms=motor_age).to_bytes()
+                              reserved=0, motor_age_ms=motor_age).to_bytes()
 
     def config(self) -> bytes:
         return P.ConfigEchoPacket(type=P.PKT_CONFIG_ECHO, motor_id=2, zeroed=int(self.zeroed),

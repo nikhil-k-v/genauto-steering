@@ -107,7 +107,7 @@ function handle(m) {
   } else if (m.type === "hello") { setRecording(m.recording); }
   else if (m.type === "recording") { setRecording(m); }
   else if (m.type === "telemetry") {
-    const names = ["REST", "HOLD", "TRAJ", "JOYSTICK", "TEST", "FREE-SPIN", "CALIBRATING", "TRIPPED"];
+    const names = ["REST", "HOLD", "FOLLOWING", "TEST", "FREE-SPIN", "CALIBRATING", "TRIPPED"];
     $("cs").textContent = names[m.cs] || m.cs; $("pos").textContent = m.pos.toFixed(1) + "°"; $("sp").textContent = m.sp.toFixed(1) + "°";
   } else if (m.type === "health") {
     const cls = {0: "unk", 1: "ok", 2: "blk", 3: "bad"};

@@ -30,14 +30,14 @@ constants at the top of `firmware/teensy/src/config.h` and are deliberately not 
 | LIMIT | measured position `LIMIT_TRIP_OVERSHOOT_DEG` past a calibrated stop | limits wrong, zero slipped, mechanical slip | recalibrate |
 | CALIB_FAILED | seek/centre/settle timeout, range < `CAL_MIN_RANGE_DEG` | wheel can't reach a stop at 3.5 Nm, something in the way | clear, check mechanics, adjust `CAL_*` |
 | PC_SHUTDOWN | PC app exited and asked for REST | normal exit | re-enable |
-| ISR_OVERRUN | ≥ `ISR_OVERRUN_TRIP` overruns in one health period | I2C stall, firmware bug | report (C1 counters) |
+| ISR_OVERRUN | ≥ `ISR_OVERRUN_TRIP` overruns in one health period | I2C stall, firmware bug | report (T1 counters) |
 
 Trips are latched: the Teensy stays in TRIPPED (motor resting) until **Clear trip**, which only goes to
 REST — you then Enable deliberately. `DISABLE` is always accepted (even while tripped).
 
 ## What the PC must never do
 
-* Send gains/setpoints without the link round trip proven (D5).
+* Send gains/setpoints without the link round trip proven (C5).
 * Start a stream unless the motor is in HOLD, zeroed, limits valid, no trip, switch armed, recorder OK.
 * Crash. (`safe()` everywhere; the frame loop itself is wrapped.)
 * Exit without sending DISABLE.

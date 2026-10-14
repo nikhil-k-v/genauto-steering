@@ -9,18 +9,11 @@
 #pragma once
 #include <stdint.h>
 
-// ---- build options ----------------------------------------------------------
-#ifndef WIRED_MODE
-#define WIRED_MODE 1            // 1 = PC over USB serial, 0 = PC via NRF24 bridge
-#endif
-
 // ---- pins (hardware identical to previous build) ----------------------------
 #define PIN_IDLE_SWITCH     22  // SPST to GND, INPUT_PULLUP. LOW = ARMED, HIGH = IDLE
 #define PIN_OLED_SDA        18  // Wire (I2C0)
 #define PIN_OLED_SCL        19
-#define PIN_NRF_CE           9
-#define PIN_NRF_CSN         10  // SPI0: MOSI 11, MISO 12, SCK 13
-#define PIN_LED             13  // on-board LED (shared with SCK; heartbeat only in wired mode)
+#define PIN_LED             13  // on-board LED heartbeat
 // CAN3: CRX3 = pin 30, CTX3 = pin 31  (transceiver STBY tied low)
 
 // ---- motor / CAN -------------------------------------------------------------
@@ -81,8 +74,6 @@
 // ---- link timeouts (what "alive" means) -------------------------------------
 #define PC_HEARTBEAT_TIMEOUT_MS   1000
 #define PC_CONTROL_LOSS_MS         600   // PC silent this long: TRAJ -> trip, TEST -> end test
-#define BRIDGE_TIMEOUT_MS         1000
-#define JOYSTICK_TIMEOUT_MS        300
 #define SETPOINT_STREAM_TIMEOUT_MS 250   // no setpoint for this long in TRAJ -> HOLD
 
 // ---- control defaults --------------------------------------------------------
@@ -101,7 +92,6 @@
 
 // Setpoint shaping: never let the commanded setpoint jump.
 #define SETPOINT_SLEW_DEG_S     2300.0f  // ~40 rad/s, same as before
-#define JOY_MAX_RATE_DEG_S       180.0f
 
 // Gain ramp on (re)enable so a stale setpoint never snaps the wheel.
 #define GAIN_RAMP_START_FRAC     0.05f
@@ -147,7 +137,3 @@
 #define OLED_SPLASH_MS         2000
 #define OLED_I2C_ADDR          0x3C
 
-// ---- NRF24 (wireless bridge) --------------------------------------------------
-#define NRF_CHANNEL            108
-#define NRF_ADDR_TEENSY        "STR01"   // bridge -> teensy pipe
-#define NRF_ADDR_BRIDGE        "STR02"   // teensy -> bridge pipe

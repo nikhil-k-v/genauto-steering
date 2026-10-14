@@ -2,7 +2,7 @@
 // main.cpp — Gen Auto steering actuator controller (Teensy 4.1).
 //
 // Schedules the main-loop services around the 1 kHz control ISR:
-//   comms_poll()        every pass   (USB + RF in, dispatch)
+//   comms_poll()        every pass   (USB in, dispatch)
 //   can_motor_poll()    every pass   (FlexCAN RX queue -> motor sample)
 //   telemetry           200 Hz
 //   health + OLED       20 / 25 Hz
@@ -47,7 +47,5 @@ void loop() {
     }
     if (s_cfg_t >= (1000 / CONFIG_ECHO_HZ)) { s_cfg_t = 0; comms_emit_config(); }
     if (s_disp_t >= (1000 / DISPLAY_HZ))   { s_disp_t = 0; display_update(s_health); }
-#if WIRED_MODE
     if (s_led_t >= 500) { s_led_t = 0; digitalToggleFast(PIN_LED); }
-#endif
 }

@@ -1,12 +1,12 @@
 // =============================================================================
-// protocol.h — THE wire contract between Teensy, Arduino bridge and PC.
+// protocol.h — THE wire contract between the Teensy (CCM) and the PC.
 //
-// Single source of truth.  Both firmware targets include this exact file via
+// Single source of truth.  The firmware includes this exact file via
 // PlatformIO `build_flags = -I../../protocol`; pc/steering/protocol.py mirrors
 // it and pc/tests/test_protocol_sync.py parses this header to prove the two
 // agree (packet IDs, enum values, struct sizes).  Change it here first.
 //
-// Framing (all transports: USB serial, NRF24 payload):
+// Framing (USB serial):
 //
 //   [SYNC0 0xAB][SYNC1 0xCD][LEN][SEQ][payload LEN bytes][CRC8]
 //
@@ -15,13 +15,12 @@
 //   CRC8  = CRC-8/MAXIM (poly 0x31, init 0x00) over LEN, SEQ and payload
 //
 //   payload[0] is always the packet type.  All structs are packed (1-byte
-//   aligned), little-endian, and <= 32 bytes so a whole frame payload fits in
-//   one NRF24 radio packet.
+//   aligned), little-endian, and <= 32 bytes.
 // =============================================================================
 #pragma once
 #include <stdint.h>
 
-#define PROTOCOL_VERSION    2
+#define PROTOCOL_VERSION    3
 
 #define FRAME_SYNC0         0xAB
 #define FRAME_SYNC1         0xCD
@@ -43,26 +42,21 @@
 #define PKT_TEST_START      0xC2
 #define PKT_HEARTBEAT       0xC3   // 5 Hz, carries PC-side health summary
 #define PKT_LIMITS          0xC4
-// Bridge (Arduino) <-> everyone
-#define PKT_JOYSTICK        0xD1
-#define PKT_BRIDGE_STATUS   0xD2
 
 // ---- controller states (HealthPacket.ctrl_state, TelemetryPacket.ctrl_state)
 #define CS_REST             0   // motor MOSFETs off, CAN "exit motor mode" sent
 #define CS_HOLD             1   // enabled, holding setpoint (slider / hold-here)
 #define CS_TRAJ             2   // following PC setpoint stream
-#define CS_JOY              3   // joystick velocity mode
-#define CS_TEST             4   // step / relay test running on Teensy
-#define CS_FREESPIN         5   // enabled, zero gains, zero torque
-#define CS_CALIB            6   // end-stop calibration routine running
-#define CS_TRIPPED          7   // safety trip latched; needs CMD_CLEAR_TRIP
+#define CS_TEST             3   // step / relay test running on Teensy
+#define CS_FREESPIN         4   // enabled, zero gains, zero torque
+#define CS_CALIB            5   // end-stop calibration routine running
+#define CS_TRIPPED          6   // safety trip latched; needs CMD_CLEAR_TRIP
 
 // ---- requested modes (ModeRequestPacket.mode) ------------------------------
-#define MODE_AUTO           0   // let the Teensy pick (joystick if present, else hold)
+#define MODE_AUTO           0   // follow a fresh setpoint stream, else hold
 #define MODE_HOLD           1
 #define MODE_TRAJ           2
-#define MODE_JOY            3
-#define MODE_FREESPIN       4
+#define MODE_FREESPIN       3
 
 // ---- commands (CommandPacket.cmd) ------------------------------------------
 #define CMD_ENABLE          0x01   // REST -> HOLD (requires zeroed, switch armed, no trip)
@@ -115,21 +109,22 @@
 // ---- firmware health nodes (HealthPacket.node_states, 2 bits each) ---------
 // State encoding per node: 0 = UNKNOWN, 1 = OK, 2 = BLOCKED (not broken, but
 // prevents something), 3 = FAIL.  Index = bit offset / 2.
-#define HN_CAN_CTRL         0   // FlexCAN not bus-off, error counters sane   (A1)
-#define HN_CAN_TX           1   // frames leaving the mailbox                  (A2)
-#define HN_CAN_RX_ANY       2   // any frame heard on the bus                  (A3)
-#define HN_CAN_MOTOR        3   // replies from MOTOR_ID at expected rate      (A4)
-#define HN_MOTOR_DATA       4   // reply values sane / not frozen              (A5)
-#define HN_MOTOR_CURRENT    5   // |current| under limit                       (A6)
-#define HN_SWITCH           6   // idle switch armed (OK) / idle (BLOCKED)     (B1)
-#define HN_TRIP             7   // no latched trip                             (B2)
-#define HN_ISR              8   // 1 kHz loop on time                          (C1)
-#define HN_CTRL_READY       9   // zeroed + limits + gains valid               (C2)
-#define HN_CALIB            10  // calibration not in progress / not failed    (C3)
-#define HN_PC_LINK          11  // PC heartbeat fresh as seen by Teensy        (D1)
-#define HN_BRIDGE_LINK      12  // RF bridge alive as seen by Teensy           (E1)
-#define HN_OLED             13  // display initialised                         (C4)
-#define HN_COUNT            14
+// Group letters (docs/HEALTH.md): M motor & CAN, S safety, T Teensy controller,
+// C comms (PC link), D data & services (PC side only).
+#define HN_CAN_CTRL         0   // FlexCAN not bus-off, error counters sane   (M1)
+#define HN_CAN_TX           1   // frames leaving the mailbox                  (M2)
+#define HN_CAN_RX_ANY       2   // any frame heard on the bus                  (M3)
+#define HN_CAN_MOTOR        3   // replies from MOTOR_ID at expected rate      (M4)
+#define HN_MOTOR_DATA       4   // reply values sane / not frozen              (M5)
+#define HN_MOTOR_CURRENT    5   // |current| under limit                       (M6)
+#define HN_SWITCH           6   // idle switch armed (OK) / idle (BLOCKED)     (S1)
+#define HN_TRIP             7   // no latched trip                             (S2)
+#define HN_ISR              8   // 1 kHz loop on time                          (T1)
+#define HN_CTRL_READY       9   // zeroed + limits + gains valid               (T2)
+#define HN_CALIB            10  // calibration not in progress / not failed    (T3)
+#define HN_OLED             11  // display initialised                         (T4)
+#define HN_PC_LINK          12  // PC packets fresh as seen by Teensy          (C5 on the PC)
+#define HN_COUNT            13
 
 #define HS_UNKNOWN          0
 #define HS_OK               1
@@ -156,19 +151,12 @@
 #define TF_TEST_RUNNING     (1 << 4)
 #define TF_LIMITS_VALID     (1 << 5)
 #define TF_FREESPIN         (1 << 6)
-#define TF_JOY_PRESENT      (1 << 7)
 
 // ---- heartbeat flag bits (PC -> Teensy) ------------------------------------
 #define HB_RECORDING        (1 << 0)
 #define HB_UI_ALIVE         (1 << 1)
 #define HB_SERVER_UP        (1 << 2)
 #define HB_PHONE_CAPTURE    (1 << 3)
-
-// ---- bridge status bits ----------------------------------------------------
-#define BS_RF_TEENSY        (1 << 0)   // bridge hears Teensy over RF
-#define BS_USB_PC           (1 << 1)   // bridge hears PC over USB
-#define BS_JOY_PRESENT      (1 << 2)
-#define BS_TELEM_SEEN       (1 << 3)
 
 #pragma pack(push, 1)
 
@@ -202,7 +190,7 @@ struct HealthPacket {
     uint8_t  isr_overruns;    // since last health packet
     uint16_t loop_hz;         // measured control loop rate
     uint16_t pc_hb_age_ms;    // 0xFFFF = never
-    uint16_t bridge_age_ms;   // 0xFFFF = never
+    uint16_t reserved;
     uint16_t motor_age_ms;    // ms since last motor reply (0xFFFF = never)
 };                            // 28
 
@@ -292,23 +280,6 @@ struct LimitsPacket {
     float    right_deg;
 };                            // 12
 
-// Bridge
-struct JoystickPacket {
-    uint8_t  type;            // PKT_JOYSTICK
-    uint8_t  buttons;
-    int16_t  x;               // -512..511
-    int16_t  y;
-    uint32_t t_ms;
-};                            // 10
-
-struct BridgeStatusPacket {
-    uint8_t  type;            // PKT_BRIDGE_STATUS
-    uint8_t  bits;            // BS_*
-    uint8_t  rf_rx_hz;
-    uint8_t  reserved;
-    uint32_t t_ms;
-};                            // 8
-
 #pragma pack(pop)
 
 static_assert(sizeof(TelemetryPacket)    == 28, "TelemetryPacket size");
@@ -323,8 +294,6 @@ static_assert(sizeof(CommandPacket)      ==  8, "CommandPacket size");
 static_assert(sizeof(TestStartPacket)    == 16, "TestStartPacket size");
 static_assert(sizeof(HeartbeatPacket)    ==  8, "HeartbeatPacket size");
 static_assert(sizeof(LimitsPacket)       == 12, "LimitsPacket size");
-static_assert(sizeof(JoystickPacket)     == 10, "JoystickPacket size");
-static_assert(sizeof(BridgeStatusPacket) ==  8, "BridgeStatusPacket size");
 
 // ---- CRC-8/MAXIM (poly 0x31 reflected = 0x8C) ------------------------------
 static inline uint8_t protocol_crc8(const uint8_t* d, uint8_t len) {
@@ -341,7 +310,7 @@ static inline uint8_t protocol_crc8(const uint8_t* d, uint8_t len) {
     return crc;
 }
 
-// ---- tiny streaming frame parser (shared by all three targets) -------------
+// ---- tiny streaming frame parser (shared by firmware and tests) -----------
 // Usage:  FrameParser p;  for each byte: if (p.push(b)) handle(p.payload, p.len);
 struct FrameParser {
     uint8_t  state   = 0;

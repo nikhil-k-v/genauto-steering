@@ -28,11 +28,12 @@ class LivePanel:
 
     def build(self):
         with dpg.group(horizontal=True):
-            self.tags["fit"] = dpg.add_checkbox(label="Auto-fit axes", default_value=self.app.settings.auto_bounds)
-            self.tags["win"] = dpg.add_slider_float(label="window (s)", default_value=self.app.settings.plot_seconds,
-                                                    min_value=2, max_value=60, width=220, format="%.0f s")
-            dpg.add_button(label="Clear", callback=safe(self.buf.clear))
-            self.tags["rate"] = dpg.add_text("", color=T.DIM)
+            self.tags["fit"] = T.toggle("auto-fit y axes", self.app.settings.auto_bounds)
+            self.tags["win"] = dpg.add_slider_float(label="window", default_value=self.app.settings.plot_seconds,
+                                                    min_value=2, max_value=60, width=200, format="%.0f s")
+            dpg.bind_item_theme(self.tags["win"], T.theme("slider"))
+            T.action("clear", "ghost", safe(self.buf.clear), 70)
+            self.tags["rate"] = T.mono_text("", color=T.DIM)
         self.plots = {}
         for key, label, series in (("pos", "Position [deg]", ("setpoint", "target", "position")),
                                    ("vel", "Velocity [deg/s]", ("velocity",)),

@@ -18,33 +18,32 @@ class CalibrationPanel:
 
     def build(self):
         g = self.ui.gate
-        dpg.add_text("AUTOMATIC", color=T.ACCENT)
+        T.section("Automatic")
         dpg.add_text("The Teensy creeps the wheel left at a bounded speed with the least torque that overcomes friction, "
                      "leans harder once it stops, bumps once more to confirm it is a real stop (not friction), repeats to the right, "
                      "moves slowly to the exact middle, sets zero there. Limits in config.h: CAL_* (max 3.5 Nm).", wrap=900)
         with dpg.group(horizontal=True):
-            b = dpg.add_button(label="Auto-calibrate end stops + zero", width=260, callback=safe(self.c.calibrate))
+            b = T.action("Auto-calibrate end stops + zero", "accent", safe(self.c.calibrate), 280)
             g.bind(b, "calibrate", "Needs: motor replying, switch armed, no trip, nothing streaming. Recording 'autocal' is made automatically.")
-            dpg.bind_item_theme(b, T.theme("btn_accent"))
-            b = dpg.add_button(label="Abort", width=90, callback=safe(self.c.calib_abort)); g.bind(b, "calib_abort")
-        self.tags["stage"] = dpg.add_text("stage: -")
+            b = T.action("Abort", "bad", safe(self.c.calib_abort), 90); g.bind(b, "calib_abort")
+        self.tags["stage"] = T.mono_text("stage: -", bold=True)
         dpg.add_spacer(height=12)
-        dpg.add_text("MANUAL", color=T.ACCENT)
+        T.section("Manual")
         dpg.add_text("Free-spin, turn the wheel to the left stop, capture; same on the right; then let it centre and zero.", wrap=900)
         with dpg.group(horizontal=True):
-            b = dpg.add_button(label="Capture LEFT stop", width=170, callback=safe(self.c.capture_left)); g.bind(b, "capture_limits")
-            b = dpg.add_button(label="Capture RIGHT stop", width=170, callback=safe(self.c.capture_right)); g.bind(b, "capture_limits")
-            b = dpg.add_button(label="Go to centre + set zero", width=200, callback=safe(self.c.go_center_zero))
+            b = T.action("Capture LEFT stop", "neutral", safe(self.c.capture_left), 170); g.bind(b, "capture_limits")
+            b = T.action("Capture RIGHT stop", "neutral", safe(self.c.capture_right), 170); g.bind(b, "capture_limits")
+            b = T.action("Go to centre + set zero", "accent", safe(self.c.go_center_zero), 210)
             g.bind(b, "go_center_zero", "Slews to (L+R)/2 with gentle gains and zeroes there.")
-            b = dpg.add_button(label="Set zero HERE", width=130, callback=safe(self.c.set_zero))
+            b = T.action("Set zero HERE", "neutral", safe(self.c.set_zero), 130)
             g.bind(b, "set_zero", "Current position becomes 0 deg. Limits are shifted accordingly.")
         dpg.add_spacer(height=12)
-        dpg.add_text("STATE", color=T.DIM)
-        self.tags["state"] = dpg.add_text("", wrap=900)
+        T.section("State")
+        self.tags["state"] = T.mono_text("", wrap=900)
         with dpg.group(horizontal=True):
-            self.tags["l"] = dpg.add_input_float(label="left [deg]", default_value=-180, width=110, step=0)
-            self.tags["r"] = dpg.add_input_float(label="right [deg]", default_value=180, width=110, step=0)
-            b = dpg.add_button(label="Set limits manually", width=160, callback=safe(self._set_limits)); g.bind(b, "capture_limits")
+            self.tags["l"] = T.number("left [deg]", -180, 100, "%.1f")
+            self.tags["r"] = T.number("right [deg]", 180, 100, "%.1f")
+            b = T.action("Set limits manually", "neutral", safe(self._set_limits), 170); g.bind(b, "capture_limits")
 
     def _set_limits(self):
         self.c.set_limits(dpg.get_value(self.tags["l"]), dpg.get_value(self.tags["r"]))

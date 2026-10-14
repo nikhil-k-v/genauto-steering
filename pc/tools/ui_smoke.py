@@ -66,7 +66,7 @@ def main():
         raise SystemExit(f"timeout: {what}")
 
     c = app.controller
-    until(lambda: c.live.tree.nodes["D5"].state == P.HS_OK, what="link up")
+    until(lambda: c.live.tree.nodes["C5"].state == P.HS_OK, what="link up")
     frames(30, 0.02)
     shot("01_live_rest")
     c.enable()
@@ -113,6 +113,13 @@ def main():
     ui.panels["health"].select_group("B")
     frames(10)
     shot("08_health_tripped")
+    # literal connection lines: pretend the Enable button is hovered while S1/S2 block it
+    dpg.set_value("tabs", "tab_live")
+    enable_btn = next(i for i, a in ui.gate.bindings.items() if a == "enable")
+    ui.overlay.force = (enable_btn, "enable")
+    frames(5)
+    shot("11_connection_lines")
+    ui.overlay.force = None
     t.sim.f.switch_armed = True
     t.sim.f.motor_power = False
     frames(40, 0.03)

@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gen Auto Steering</title>
+<style>
+  :root { --bg:#0f1218; --panel:#161a24; --panel2:#1c2130; --ink:#e6e9f0; --dim:#8a92a4; --line:#2e3444;
+          --ok:#3ebe6e; --warn:#eca040; --bad:#e24c4c; --unk:#545a6c; --accent:#4a8cff;
+          --M:#a78bfa; --S:#e85555; --T:#4eca7a; --C:#4a8cff; --D:#f0a44e; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 -apple-system, "Segoe UI", "DejaVu Sans", system-ui, sans-serif; }
+  code, pre, .mono { font-family: "DejaVu Sans Mono", Menlo, Consolas, monospace; font-size: 13px; }
+  header { display:flex; align-items:center; gap:18px; padding:12px 22px; border-bottom:1px solid var(--line); background:#11141c; position:sticky; top:0; z-index:5; }
+  header h1 { font-size:16px; letter-spacing:.6px; margin:0; font-weight:700; }
+  nav a { color:var(--dim); text-decoration:none; margin-right:16px; font-weight:600; font-size:14px; padding:6px 2px; border-bottom:2px solid transparent; }
+  nav a.active { color:var(--ink); border-color:var(--accent); }
+  .spacer { flex:1 }
+  .pill { font-family: monospace; font-size:12px; padding:3px 9px; border-radius:999px; background:#2a3040; }
+  .pill.ok { background:var(--ok); color:#06200f } .pill.bad { background:var(--bad) } .pill.warn { background:var(--warn); color:#1a1200 }
+  main { padding:20px 22px 60px; max-width:1500px; margin:0 auto; }
+  h2 { font-size:20px; margin:22px 0 10px } h3 { font-size:15px; color:var(--dim); text-transform:uppercase; letter-spacing:.8px; margin:22px 0 8px }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:14px; }
+  .grid { display:grid; gap:12px } .g2 { grid-template-columns:1fr 1fr } .g3 { grid-template-columns:repeat(3,1fr) }
+  .tile { border-radius:10px; padding:10px 12px; color:#0c0e12; min-height:66px; }
+  .tile .t { font-size:11px; color:rgba(0,0,0,.65); font-weight:700; letter-spacing:.5px; text-transform:uppercase }
+  .tile .b { font-size:20px; font-weight:800; line-height:1.2 } .tile .s { font-family:monospace; font-size:12px; opacity:.85 }
+  .st0 { background:var(--unk); color:#d8dbe2 } .st0 .t { color:rgba(255,255,255,.7) } .st1 { background:var(--ok) } .st2 { background:var(--warn) } .st3 { background:var(--bad) }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px,1fr)); gap:10px }
+  .tile small { display:block; font-family:monospace; font-size:11px; margin-top:4px; opacity:.85 }
+  .tile details { font-size:12px; margin-top:6px; color:rgba(0,0,0,.85) } .st0 details { color:#d8dbe2 }
+  button { font:inherit; font-weight:600; border:0; border-radius:8px; padding:8px 14px; background:#2d3448; color:var(--ink); cursor:pointer }
+  button.primary { background:var(--accent) } button.danger { background:var(--bad) } button.ghost { background:#222838 } button:disabled { opacity:.4 }
+  input, select { font:inherit; font-family:monospace; font-size:13px; background:#0b0d12; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:7px 9px }
+  table { width:100%; border-collapse:collapse; font-size:14px } th { text-align:left; color:var(--dim); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.5px; padding:6px 8px; border-bottom:1px solid var(--line) }
+  td { padding:7px 8px; border-bottom:1px solid #1d2230; vertical-align:top } tr.row:hover td { background:#1a1f2c; cursor:pointer } tr.pb td:first-child { padding-left:28px; color:var(--dim) }
+  .kv { display:grid; grid-template-columns:160px 1fr; gap:4px 12px; font-family:monospace; font-size:13px }
+  .kv b { color:var(--dim); font-weight:600 }
+  canvas.plot { width:100%; height:200px; background:#0b0d12; border-radius:8px; border:1px solid var(--line) }
+  .legend span { display:inline-block; margin-right:14px; font-family:monospace; font-size:12px } .legend i { display:inline-block; width:12px; height:3px; margin-right:6px; vertical-align:middle }
+  .docs { display:grid; grid-template-columns:220px 1fr; gap:18px } .docs nav a { display:block; margin:0 0 6px }
+  .md img { max-width:100%; border-radius:8px; border:1px solid var(--line); background:#0f1218 } .md table { font-size:13px } .md td, .md th { border:1px solid var(--line) } .md pre { background:#0b0d12; padding:10px 12px; border-radius:8px; overflow:auto } .md code { background:#0b0d12; padding:1px 4px; border-radius:4px } .md h1 { font-size:24px } .md h2 { border-bottom:1px solid var(--line); padding-bottom:4px }
+  .md a { color:var(--accent) }
+  .strip { display:grid; grid-template-columns: 1fr 120px 1fr 120px 1fr; gap:10px; align-items:center }
+  .link { text-align:center; font-family:monospace; font-size:12px; color:var(--dim) } .link .bar { height:6px; border-radius:3px; margin:6px 0 }
+  .events { font-family:monospace; font-size:12px; max-height:260px; overflow:auto; background:#0b0d12; border-radius:8px; padding:8px 10px; border:1px solid var(--line) }
+  .events .w { color:var(--warn) } .events .b { color:var(--bad) }
+  .muted { color:var(--dim) }
+  @media (max-width:900px) { .g2, .g3, .docs, .strip { grid-template-columns:1fr } }
+</style>
+</head>
+<body>
+<header>
+  <h1>GEN AUTO · STEERING</h1>
+  <nav id="nav">
+    <a href="#home">System</a><a href="#recordings">Recordings</a><a href="#docs">Docs</a><a href="/phone">Phone capture</a>
+  </nav>
+  <div class="spacer"></div>
+  <span>hub <span id="wsPill" class="pill">connecting</span></span>
+  <span>motor <span id="statePill" class="pill">—</span></span>
+</header>
+<main id="main"></main>
+
+<script>
+// ---------------------------------------------------------------- utilities
+const $ = (s, el=document) => el.querySelector(s);
+const h = (tag, attrs={}, ...kids) => { const e=document.createElement(tag); for (const [k,v] of Object.entries(attrs)) { if (k==="class") e.className=v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else if (k==="html") e.innerHTML=v; else e.setAttribute(k,v); } for (const k of kids.flat()) if (k!=null) e.append(k.nodeType?k:document.createTextNode(k)); return e; };
+const api = async (path, opts) => { const r = await fetch(path, opts); if (!r.ok) throw new Error(path+" -> "+r.status); return r.json(); };
+const STATE = ["UNKNOWN","OK","BLOCKED","FAIL"], CS = ["REST","HOLD","FOLLOWING","TEST","FREE-SPIN","CALIBRATING","TRIPPED"];
+const fmt = (x, d=2) => (x==null||isNaN(x)) ? "—" : Number(x).toFixed(d);
+
+// ---------------------------------------------------------------- live feed
+let ws, live = {telemetry:null, health:null, recording:null, events:[]};
+function connect() {
+  ws = new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws");
+  ws.onopen = () => setPill("wsPill","online","ok");
+  ws.onclose = () => { setPill("wsPill","offline","bad"); setTimeout(connect, 1500); };
+  ws.onmessage = ev => { const m = JSON.parse(ev.data);
+    if (m.type==="telemetry") { live.telemetry=m; setPill("statePill", CS[m.cs]||m.cs, m.cs===6?"bad":m.cs===0?"":"ok"); }
+    else if (m.type==="health") { live.health=m; if (route()==="home") renderHomeLive(); }
+    else if (m.type==="recording"||m.type==="hello") { live.recording = m.recording||m; }
+    else if (m.type==="event"||m.type==="health_transition") { live.events.unshift(m); live.events=live.events.slice(0,60); if (route()==="home") renderEvents(); }
+  };
+}
+function setPill(id, text, cls) { const e=$("#"+id); e.textContent=text; e.className="pill "+(cls||""); }
+
+// ---------------------------------------------------------------- router
+function route() { return (location.hash||"#home").slice(1).split("/")[0]; }
+window.addEventListener("hashchange", render);
+async function render() {
+  const r = route(), arg = (location.hash.split("/")[1]||"");
+  for (const a of $("#nav").querySelectorAll("a")) a.classList.toggle("active", a.getAttribute("href")==="#"+r);
+  const main = $("#main"); main.innerHTML="";
+  try {
+    if (r==="home") await renderHome(main);
+    else if (r==="recordings") await (arg ? renderRecording(main, arg) : renderRecordings(main));
+    else if (r==="docs") await renderDocs(main, arg);
+  } catch (e) { main.append(h("div",{class:"card"}, "Error: "+e.message)); }
+}
+
+// ---------------------------------------------------------------- home: system + connectivity
+async function renderHome(main) {
+  main.append(h("h2",{}, "System"));
+  main.append(h("p",{class:"muted"}, "Live view of the steering robot from the laptop hub. Every tile is a status group; open a tile to see the checks inside it. The desktop app on the laptop is the control surface - this page is for checking connectivity, browsing recordings and reading the docs."));
+  main.append(h("div",{class:"card", id:"strip"}));
+  main.append(h("div",{class:"grid g2"},
+    h("div",{class:"card"}, h("h3",{}, "Connectivity check"), h("div",{id:"conn", class:"kv"})),
+    h("div",{class:"card"}, h("h3",{}, "Recent events"), h("div",{id:"events", class:"events"}, "—"))));
+  main.append(h("div",{class:"card"}, h("h3",{}, "All checks"), h("div",{id:"tiles", class:"tiles"})));
+  await renderHomeLive(true);
+}
+async function renderHomeLive(full=false) {
+  const hl = await api("/api/health").catch(()=>null);
+  if (!hl) return;
+  const st = await api("/status").catch(()=>null);
+  const g = Object.fromEntries(hl.groups.map(x=>[x.id,x]));
+  const t = live.telemetry;
+  const tile = (id, title, big, small) => h("div",{class:"tile st"+(g[id]?g[id].state:0), onclick:()=>location.hash="#home", title:g[id]?g[id].question:""},
+      h("div",{class:"t"}, title), h("div",{class:"b"}, big), h("div",{class:"s"}, small));
+  const strip = $("#strip"); strip.innerHTML="";
+  const rec = st && st.recording && st.recording.active ? `REC ${st.recording.name}` : "IDLE";
+  const link = (id, label, state) => h("div",{class:"link"}, label, h("div",{class:"bar", style:`background:${["var(--unk)","var(--ok)","var(--warn)","var(--bad)"][state]}`}), "<->");
+  strip.append(h("div",{class:"strip"},
+    tile("D", "Laptop app  (D)", rec, st ? `${st.clients} client(s)` : "hub?"),
+    link("C", "USB 2 Mbps", g.C.state),
+    tile("T", "CCM / Teensy  (T)", t ? CS[t.cs] : "no data", "1 kHz control loop"),
+    link("M", "CAN 1 Mbps", g.M.state),
+    tile("M", "Motor  (M)", t ? `${fmt(t.pos,1)} deg` : "—", t ? `${fmt(t.cur,1)} A  ${fmt(t.vel,0)} deg/s` : "")));
+  strip.append(h("div",{class:"strip", style:"margin-top:10px"}, h("div"), h("div"), tile("S", "Safety  (S)", g.S.state===1?"ARMED":g.S.state===2?"IDLE":g.S.state===3?"TRIPPED":"—", "idle switch, trips"), h("div"), h("div")));
+  const nodes = Object.fromEntries(hl.nodes.map(n=>[n.id,n]));
+  const conn = $("#conn"); conn.innerHTML="";
+  const rows = [["this page -> hub", "ok (you are reading it)"], ["hub -> laptop app", st ? "ok" : "no status"],
+    ["laptop -> Teensy", `${STATE[nodes.C4.state]} ${nodes.C4.reason}`], ["Teensy hears laptop", `${STATE[nodes.C5.state]} ${nodes.C5.reason}`],
+    ["Teensy -> motor", `${STATE[nodes.M4.state]} ${nodes.M4.reason}`], ["idle switch", `${STATE[nodes.S1.state]} ${nodes.S1.reason}`],
+    ["zero + limits", `${STATE[nodes.T2.state]} ${nodes.T2.reason}`], ["phone", `${STATE[nodes.D4.state]} ${nodes.D4.reason}`]];
+  for (const [k,v] of rows) conn.append(h("b",{},k), h("span",{}, v));
+  const tiles = $("#tiles"); tiles.innerHTML="";
+  for (const n of hl.nodes) tiles.append(h("div",{class:"tile st"+n.state},
+    h("div",{class:"t"}, `${n.id} ${n.name}`), h("div",{class:"b", style:"font-size:16px"}, n.optional&&n.state===2?"OFF":STATE[n.state]), h("small",{}, n.reason||""),
+    h("details",{}, h("summary",{}, "what / fix"), h("div",{}, h("b",{},"OK: "), n.ok), h("div",{}, h("b",{},"Bad: "), n.bad), h("div",{}, h("b",{},"Fix: "), n.fix))));
+  renderEvents();
+}
+function renderEvents() { const e=$("#events"); if (!e) return; e.innerHTML=""; for (const m of live.events) e.append(h("div",{class:m.type==="event"&&m.code==="trip"?"b":m.to==="FAIL"?"b":m.to==="BLOCKED"?"w":""}, m.type==="event"?`${m.code} ${m.arg||""} ${m.text||""}`:`${m.node} ${m.from} -> ${m.to}  ${m.reason}`)); if (!live.events.length) e.textContent="—"; }
+
+// ---------------------------------------------------------------- recordings
+async function renderRecordings(main) {
+  main.append(h("h2",{}, "Recordings"));
+  const sort = h("select",{onchange:()=>load()}, ...["recent","pinned","playbacks","name"].map(v=>h("option",{value:v},v)));
+  const coll = h("select",{onchange:()=>load()}, h("option",{value:""},"all collections"));
+  const search = h("input",{placeholder:"search name / tags / notes", oninput:()=>load()});
+  main.append(h("div",{class:"card", style:"display:flex; gap:10px; align-items:center"}, "sort", sort, coll, search));
+  const table = h("table",{}, h("thead",{}, h("tr",{}, h("th",{},"name"), h("th",{},"kind"), h("th",{},"when"), h("th",{},"dur"), h("th",{},"err rms"), h("th",{},"score"), h("th",{},"health"), h("th",{},"tags"))), h("tbody"));
+  main.append(h("div",{class:"card"}, table));
+  let first = true;
+  async function load() {
+    const d = await api(`/api/recordings?sort=${sort.value}&collection=${encodeURIComponent(coll.value)}&search=${encodeURIComponent(search.value)}`);
+    if (first) { first=false; for (const c of d.collections) coll.append(h("option",{value:c},c)); }
+    const tb = $("tbody", table); tb.innerHTML="";
+    const row = (r, pb) => h("tr",{class:"row"+(pb?" pb":""), onclick:()=>location.hash="#recordings/"+r.uid},
+      h("td",{}, (r.pinned?"★ ":"")+(pb?"↳ ":"")+r.name, r.playback_count?h("span",{class:"muted"}, ` · ${r.playback_count} pb`):null),
+      h("td",{class:"mono"}, r.kind), h("td",{class:"mono"}, r.created_str), h("td",{class:"mono"}, fmt(r.duration_s,1)+"s"),
+      h("td",{class:"mono"}, fmt(r.metrics.err_rms_deg)), h("td",{class:"mono"}, r.metrics.tracking_score_pct==null?"—":fmt(r.metrics.tracking_score_pct,0)+"%"),
+      h("td",{class:"mono", style:r.health_worst?"color:var(--warn)":""}, r.health_worst||"all OK"), h("td",{class:"mono"}, r.tags.join(", ")));
+    for (const r of d.recordings) { tb.append(row(r)); for (const p of r.playbacks||[]) tb.append(row(p,true)); }
+    if (!d.recordings.length) tb.append(h("tr",{}, h("td",{colspan:8, class:"muted"}, "no recordings yet")));
+  }
+  await load();
+}
+
+async function renderRecording(main, uid) {
+  const r = await api("/api/recordings/"+uid);
+  main.append(h("p",{}, h("a",{href:"#recordings", style:"color:var(--accent)"}, "← recordings")));
+  main.append(h("h2",{}, r.name, h("span",{class:"pill", style:"margin-left:10px"}, r.kind)));
+  const info = h("div",{class:"kv"});
+  const kv = (k,v)=>info.append(h("b",{},k), h("span",{},v));
+  kv("when", r.created_str); kv("duration", `${fmt(r.duration_s,2)} s  ·  ${r.samples} samples`); kv("collection", r.collection);
+  if (r.parent) kv("playback of", h("a",{href:"#recordings/"+r.parent.uid, style:"color:var(--accent)"}, r.parent.name));
+  kv("gains", `Kp ${r.gains.kp??"?"}  Kd ${r.gains.kd??"?"}  Ki ${r.gains.ki??"?"}  Tff ${r.gains.tff_Nm??"?"}`);
+  kv("limits", `${fmt(r.gains.limit_left_deg,1)} … ${fmt(r.gains.limit_right_deg,1)} deg`);
+  kv("health", r.health_summary||"all OK"); kv("folder", r.path);
+  // data handling
+  const name = h("input",{value:r.name}), notes = h("input",{value:r.notes, placeholder:"notes", style:"width:360px"}), tags = h("input",{value:r.tags.join(", "), placeholder:"tags"});
+  const save = async (body) => { await api("/api/recordings/"+uid, {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body)}); };
+  const edit = h("div",{style:"display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px"},
+    h("button",{class:"ghost", onclick:async()=>{await save({pinned:!r.pinned}); render();}}, r.pinned?"unpin":"pin"),
+    name, h("button",{class:"ghost", onclick:()=>save({name:name.value}).then(render)}, "rename"),
+    notes, tags, h("button",{class:"primary", onclick:()=>save({notes:notes.value, tags:tags.value}).then(render)}, "save"),
+    h("button",{class:"danger", onclick:async()=>{ if (confirm("Hide this recording from the library? Files stay on disk.")) { await save({delete:true}); location.hash="#recordings"; } }}, "delete"));
+  main.append(h("div",{class:"card"}, info, edit));
+  // metrics
+  const m = r.metrics, mk = Object.keys(m).filter(k=>typeof m[k]==="number");
+  main.append(h("div",{class:"card"}, h("h3",{},"Metrics"), h("div",{class:"kv"}, ...mk.flatMap(k=>[h("b",{},k), h("span",{}, fmt(m[k],3))]))));
+  // plots
+  const plots = h("div",{class:"card"}, h("h3",{},"Traces"));
+  const specs = [["position [deg]", [["setpoint_deg","#ffb432"],["target_deg","#ff78b4"],["position_deg","#50b4ff"]]],
+                 ["error [deg]", [["error_deg","#dc4646"]]], ["velocity [deg/s]", [["velocity_deg_s","#8cdc64"]]],
+                 ["current [A] / torque ff [Nm]", [["current_A","#c88cff"],["torque_cmd_Nm","#ff78b4"]]]];
+  const canvases = [];
+  for (const [title, series] of specs) { const c = h("canvas",{class:"plot"}); canvases.push([c, series]);
+    plots.append(h("div",{class:"legend"}, h("span",{class:"muted"}, title+"  "), ...series.map(([k,col])=>h("span",{}, h("i",{style:"background:"+col}), k))), c); }
+  const cursor = h("input",{type:"range", min:0, max:1000, value:0, style:"width:100%"});
+  const readout = h("div",{class:"mono muted"});
+  plots.append(cursor, readout);
+  main.append(plots);
+  if (r.video) main.append(h("div",{class:"card"}, h("h3",{},"Phone video"), h("video",{src:"/api/recordings/"+uid+"/video", controls:"", style:"max-width:100%; border-radius:8px"})));
+  const ev = h("div",{class:"events"}, "loading…"); main.append(h("div",{class:"card"}, h("h3",{},"Events & health during the recording"), ev));
+  const d = await api(`/api/recordings/${uid}/data`);
+  const t = d.columns.t_s;
+  let cur = 0;
+  const draw = () => { for (const [c, series] of canvases) plotSeries(c, t, series.map(([k,col])=>[d.columns[k], col]), cur); };
+  cursor.oninput = () => { cur = t[Math.round(cursor.value/1000*(t.length-1))]; const i=Math.round(cursor.value/1000*(t.length-1)); readout.textContent = `t ${fmt(t[i],3)} s   setpoint ${fmt(d.columns.setpoint_deg[i])}   position ${fmt(d.columns.position_deg[i])}   error ${fmt(d.columns.error_deg[i])}   vel ${fmt(d.columns.velocity_deg_s[i],1)}   I ${fmt(d.columns.current_A[i])} A`; draw(); };
+  draw(); window.addEventListener("resize", draw);
+  const e = await api(`/api/recordings/${uid}/events`); ev.innerHTML="";
+  for (const x of e.events) ev.append(h("div",{class:x.action&&!x.allowed?"w":x.code==="trip"?"b":""}, `${fmt(x.t,2)}s  ${x.src||""}  ${x.action||x.code||""} ${x.allowed===false?"BLOCKED "+(x.reasons||[]).join("; "):""} ${x.text||""}`));
+  for (const x of e.health.filter(x=>x.kind==="transition")) ev.append(h("div",{class:x.to==="FAIL"?"b":x.to==="BLOCKED"?"w":""}, `${fmt(x.t,2)}s  health ${x.node} ${x.from} -> ${x.to}  ${x.reason}`));
+  if (!ev.children.length) ev.textContent="no events";
+}
+
+// tiny canvas plotter (no dependencies, works offline)
+function plotSeries(canvas, t, series, cursorT) {
+  const dpr = window.devicePixelRatio||1, W = canvas.clientWidth, H = canvas.clientHeight;
+  canvas.width = W*dpr; canvas.height = H*dpr; const ctx = canvas.getContext("2d"); ctx.scale(dpr,dpr);
+  const L=48, R=10, T=8, B=22; ctx.clearRect(0,0,W,H);
+  const vals = series.flatMap(([ys])=>ys.filter(v=>v!=null)); if (!vals.length) return;
+  let lo=Math.min(...vals), hi=Math.max(...vals); if (hi-lo<1e-6) { hi+=1; lo-=1; } const pad=(hi-lo)*0.08; lo-=pad; hi+=pad;
+  const t0=t[0], t1=t[t.length-1]||1; const X=v=>L+(v-t0)/(t1-t0)*(W-L-R), Y=v=>T+(hi-v)/(hi-lo)*(H-T-B);
+  ctx.strokeStyle="#262c3a"; ctx.lineWidth=1; ctx.font="11px monospace"; ctx.fillStyle="#8a92a4";
+  for (let i=0;i<=4;i++){ const v=lo+(hi-lo)*i/4, y=Y(v); ctx.beginPath(); ctx.moveTo(L,y); ctx.lineTo(W-R,y); ctx.stroke(); ctx.fillText(v.toFixed(1), 4, y+4); }
+  for (let i=0;i<=6;i++){ const v=t0+(t1-t0)*i/6, x=X(v); ctx.fillText(v.toFixed(1)+"s", x-10, H-6); }
+  for (const [ys,col] of series) { ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.beginPath(); let pen=false;
+    for (let i=0;i<ys.length;i++){ const v=ys[i]; if (v==null){pen=false;continue;} const x=X(t[i]), y=Y(v); if(!pen){ctx.moveTo(x,y);pen=true;} else ctx.lineTo(x,y);} ctx.stroke(); }
+  if (cursorT!=null) { ctx.strokeStyle="#ffe650"; ctx.lineWidth=1.5; const x=X(cursorT); ctx.beginPath(); ctx.moveTo(x,T); ctx.lineTo(x,H-B); ctx.stroke(); }
+}
+
+// ---------------------------------------------------------------- docs
+async function renderDocs(main, id) {
+  const list = await api("/api/docs");
+  id = id || (list.docs[0]&&list.docs[0].id);
+  const nav = h("nav",{}, ...list.docs.map(d=>h("a",{href:"#docs/"+d.id, class:d.id===id?"active":"", style:d.id===id?"color:var(--ink)":""}, d.title)),
+    h("h3",{},"Diagrams"), ...["01_system_overview","02_software_map","03_control_cascade","04_state_machine","05_health_tree","06_root_cause","07_data_lineage","08_electrical","09_calibration"].map(n=>h("a",{href:"/diagrams/"+n+".svg", target:"_blank"}, n.slice(3).replace(/_/g," "))));
+  const body = h("div",{class:"md card"}, "loading…");
+  main.append(h("div",{class:"docs"}, h("div",{}, nav), body));
+  if (id) { const d = await api("/api/docs/"+id); body.innerHTML = d.html; for (const a of body.querySelectorAll("a[href$='.md']")) { const m=a.getAttribute("href").match(/([A-Z_]+)\.md/); if (m) a.setAttribute("href","#docs/"+m[1]); } }
+}
+
+connect(); render();
+</script>
+</body>
+</html>

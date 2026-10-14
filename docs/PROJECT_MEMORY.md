@@ -21,7 +21,7 @@ Suggested Project instructions text:
 
 > This project is the Gen Auto vehicle robotics software (steering robot now; throttle robot, sensors
 > later). The steering repo is `genauto-steering` (see PROJECT_BRIEF). Hardware is fixed: Teensy 4.1 +
-> Yobotics BM-18 over CAN3, Arduino Uno joystick/RF bridge, laptop Python app. Respect the invariants in
+> Yobotics BM-series (BM-24?) over CAN3, laptop Python app + optional web hub. Respect the invariants in
 > CLAUDE.md: single wire contract, ISR-only CAN writes, firmware-owned safety constants, gated UI actions,
 > health nodes for every check. Prefer small, verified changes; run the simulator tests.
 

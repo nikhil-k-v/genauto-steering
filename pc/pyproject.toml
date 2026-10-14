@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-server = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "websockets>=12"]
+server = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "websockets>=12", "python-multipart>=0.0.9", "markdown>=3.5"]
 dev = ["pytest>=8"]
 
 [project.scripts]
@@ -26,3 +26,6 @@ include = ["steering*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+steering = ["ui/fonts/*.ttf", "ui/fonts/FONTS.md"]

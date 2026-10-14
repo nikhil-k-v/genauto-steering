@@ -1,16 +1,15 @@
 """
 link.py — the PC <-> Teensy transport.
 
-* `Transport` is the seam: `SerialTransport` talks to the real Teensy (or the
-  Arduino bridge in wireless mode); `tools/sim_teensy.py` provides a
-  `SimTransport` that behaves like the firmware so the whole UI can be used
-  with no hardware.
+* `Transport` is the seam: `SerialTransport` talks to the real Teensy;
+  `steering/sim.py` provides a `SimTransport` that behaves like the firmware so
+  the whole UI can be used with no hardware.
 * `Link` runs a reader thread that frames bytes, decodes packets and publishes
-  them on the bus ("telemetry", "health", "config", "event", "can_scan",
-  "bridge", "joystick"), plus a 5 Hz heartbeat.  It never raises into the UI:
+  them on the bus ("telemetry", "health_fw", "config", "event", "can_scan"),
+  plus a 5 Hz heartbeat.  It never raises into the UI:
   port errors become `link` topic updates and a reconnect loop.
 * Everything observable about the link (bytes, frames, CRC errors, ages) is
-  exposed in `LinkStats` for the PC-side health nodes D2..D6.
+  exposed in `LinkStats` for the PC-side health nodes C1..C6.
 """
 from __future__ import annotations
 
@@ -86,8 +85,6 @@ def list_serial_ports():
         desc = (p.description or "").lower() + " " + (p.manufacturer or "").lower()
         if "teensy" in desc:
             score = 3
-        elif "arduino" in desc:
-            score = 2
         elif "usb" in desc:
             score = 1
         out.append((score, p.device, label))
@@ -116,7 +113,6 @@ class LinkStats:
     last_telemetry_t: float = 0.0
     last_health_t: float = 0.0
     last_config_t: float = 0.0
-    last_bridge_t: float = 0.0
     hb_sent: int = 0
     tx_frames: int = 0
     tx_errors: int = 0
@@ -307,8 +303,3 @@ class Link:
             self.bus.publish("event", pkt)
         elif k == P.PKT_CAN_SCAN:
             self.bus.publish("can_scan", pkt)
-        elif k == P.PKT_BRIDGE_STATUS:
-            self.stats.last_bridge_t = now
-            self.bus.publish("bridge", pkt)
-        elif k == P.PKT_JOYSTICK:
-            self.bus.publish("joystick", pkt)

@@ -1,4 +1,4 @@
-# Wire protocol (v2)
+# Wire protocol (v3)
 
 Source of truth: [`protocol/protocol.h`](../protocol/protocol.h). Python mirror:
 `pc/steering/protocol.py` (checked by `pc/tests/test_protocol_sync.py`).
@@ -9,30 +9,27 @@ Source of truth: [`protocol/protocol.h`](../protocol/protocol.h). Python mirror:
 [0xAB][0xCD][LEN][SEQ][payload × LEN][CRC8]
 ```
 
-* `LEN` 1..32. `SEQ` rolls per sender; the receiver counts gaps as drops (node D3).
+* `LEN` 1..32. `SEQ` rolls per sender; the receiver counts gaps as drops (node C3).
 * `CRC8` = CRC-8/MAXIM (poly 0x31, reflected 0x8C, init 0) over `LEN SEQ payload` (check value of
   "123456789" is 0xA1).
 * The parser resyncs on any byte; a `0xAB` seen while expecting `0xCD` restarts the sync.
-* Over NRF24 the bare payload is sent (dynamic payloads ≤ 32 bytes).
 
 ## Packets
 
 | Type | Name | Dir | Size | Rate / when |
 |---|---|---|---|---|
 | 0xA1 | TelemetryPacket | T→PC | 28 | 200 Hz: ctrl_state, flags, t_us, setpoint, position, velocity, current, torque_cmd |
-| 0xA2 | HealthPacket | T→PC | 28 | 20 Hz: trip, calib stage, state, 2-bit node states ×16, CAN rates/errors, loop Hz, ages |
+| 0xA2 | HealthPacket | T→PC | 28 | 20 Hz: trip, calib stage, state, 2-bit node states ×13, CAN rates/errors, loop Hz, ages |
 | 0xA3 | ConfigEchoPacket | T→PC | 28 | 5 Hz + on change: motor id, zeroed, limits valid, kp kd ki tff, limits |
 | 0xA4 | EventPacket | T→PC | 28 | on occurrence: code, arg, 20-char text (trip, state, cmd accepted/**rejected with reason**, calib stage, limits/zero set, test done, warning) |
 | 0xA5 | CanScanPacket | T→PC | 18 | after CMD_CAN_SCAN |
 | 0xB1 | GainsPacket | PC→T | 20 | on Apply |
 | 0xB2 | SetpointPacket | PC→T | 16 | ≤ 200 Hz stream (seq, t_ms, pos, vel_ff, last flag) |
-| 0xB3 | ModeRequestPacket | PC→T | 4 | AUTO / HOLD / TRAJ / JOY / FREESPIN, sticky |
+| 0xB3 | ModeRequestPacket | PC→T | 4 | AUTO / HOLD / TRAJ / FREESPIN, sticky |
 | 0xC1 | CommandPacket | PC→T | 8 | cmd, u16 arg, float farg — see `CMD_*` |
 | 0xC2 | TestStartPacket | PC→T | 16 | step / relay with amplitude, duration, param |
-| 0xC3 | HeartbeatPacket | PC→T | 8 | 5 Hz: flags (recording, **UI alive**, server, phone), PC health bits (F group for the OLED) |
+| 0xC3 | HeartbeatPacket | PC→T | 8 | 5 Hz: flags (recording, **UI alive**, server, phone), PC health bits (C/D summary for the OLED) |
 | 0xC4 | LimitsPacket | PC→T | 12 | manual limits |
-| 0xD1 | JoystickPacket | Uno→T | 10 | 100 Hz |
-| 0xD2 | BridgeStatusPacket | Uno→T/PC | 8 | 5 Hz |
 
 Any well-formed PC packet counts as PC liveness on the Teensy (the setpoint stream is a better
 liveness signal than the heartbeat alone); the heartbeat additionally carries the flags.
@@ -54,7 +51,9 @@ See the `CS_*`, `TRIP_*`, `CAL_*` tables in `protocol.h`; names and explanations
 ### Health node bits
 
 `HealthPacket.node_states` holds 2 bits per node (`HN_*`): 0 UNKNOWN · 1 OK · 2 BLOCKED · 3 FAIL.
-Node ↔ letter mapping is in `docs/HEALTH.md`.
+Firmware nodes are M1–M6, S1–S2, T1–T4 and the Teensy's view of the PC link (shown as C5); mapping in
+`docs/HEALTH.md`. The heartbeat's `pc_health_bits` relays D1 D2 D3 D5 (bits 0–3) and C1–C4 (bits 4–7) for
+the OLED.
 
 ## CAN (Teensy ↔ BM-18)
 

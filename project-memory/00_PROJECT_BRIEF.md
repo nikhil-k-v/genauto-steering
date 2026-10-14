@@ -8,21 +8,22 @@ cameras, GNSS/INS); first maneuver target J-turns, then drifting. Purpose: execu
 aggressive / drift steering trajectories from research motion planners, repeatably and safely, and record
 evidence of every run. A throttle robot and sensors will join later.
 
-**Repo:** `genauto-steering` — `protocol/` (wire contract) · `firmware/teensy` · `firmware/arduino_bridge`
-· `pc/steering` (link, health, core, control, data, server, ui, sim) · `phone/` · `docs/`.
+**Repo:** github.com/nikhil-k-v/genauto-steering — `protocol/` (wire contract) · `firmware/teensy` ·
+`pc/steering` (link, health, core, control, data, server, ui, sim) · `web/` (browser UI) · `phone/` · `docs/`.
 
-**Hardware (unchanged from v1).** Teensy 4.1: CAN3 pins 30/31 → transceiver → BM-18 id 0x02 @ 1 Mbps;
-SSD1309 2.42" OLED on I2C 18/19; NRF24 CE 9 / CSN 10; **idle switch pin 22 → GND (open = IDLE)**;
-USB 2 Mbps to the laptop. Arduino Uno: joystick A2/A1/D3, NRF24 9/10, SSD1306 0.96" OLED. BM-18:
+**Hardware (unchanged from v1; the Arduino joystick/RF bridge was dropped).** Teensy 4.1: CAN3 pins 30/31 → transceiver → BM-series motor id 0x02 @ 1 Mbps;
+SSD1309 2.42" OLED on I2C 18/19;  **idle switch pin 22 → GND (open = IDLE)**;
+USB 2 Mbps to the laptop. BM-18:
 24 V, 6/18 Nm rated/peak, 15/40 A, 6:1 planetary, dual absolute encoder, MIT-style CAN frames.
 
 **Control.** Motor FOC 20 kHz (kp, kd in the frame) ⊃ Teensy 1 kHz ISR (slew, gain ramp, leaky
 integral, trips; the only CAN writer) ⊃ PC 200 Hz setpoint stream. States: REST HOLD TRAJ JOY TEST
 FREESPIN CALIB TRIPPED. Firmware-owned safety constants in `firmware/teensy/src/config.h`.
 
-**Health tree.** Groups A Motor&CAN · B Safety · C Controller · D PC link · E Bridge · F Data/services;
-24 nodes, each with reason + affected actions; shown as A–F boxes on the UI and both OLEDs ("A4" = first
-bad node). Every UI action is gated by `health/gating.py`; the Teensy answers every command with
+**Health tree.** Groups **M** motor&CAN · **S** safety · **T** Teensy controller · **C** comms (PC⇄Teensy) ·
+**D** data/services; 24 nodes, each with reason + affected actions; shown as a live system diagram of big
+coloured tiles in the app, on the web UI and on the OLED (`M4` = first bad node). Every UI action is gated by
+`health/gating.py` and literally wired to its tiles (hover → lines); the Teensy answers every command with
 ACCEPTED/REJECTED + reason. Transitions logged to `data/logs/health-*.jsonl` and into each recording.
 
 **Data.** `data/recordings/<collection>/<date>/<HHMMSS>_<kind>_<name>/` with `data.csv`, `meta.json`,
@@ -40,4 +41,4 @@ HOLD fallback after 250 ms). ROS 2 bridge node is the next step.
 type-check passes). Tune `CAL_*` on the real column.
 
 **Owner preferences.** Laptop app stays a Python desktop GUI (no web GUI in the loop). Safety thresholds
-are named constants in firmware, never UI-settable. Hub/server only for phones and extra devices.
+are named constants in firmware, never UI-settable. Web hub is for status/recordings/docs/phones/planner, never in the control loop.

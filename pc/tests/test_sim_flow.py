@@ -31,26 +31,26 @@ def connect(app, faults=None, realtime=4.0):
     t = SimTransport(faults, realtime=realtime)
     app.start(t)
     wait(lambda: app.controller.live.telemetry is not None, what="telemetry")
-    wait(lambda: app.controller.live.tree.nodes["D5"].state == P.HS_OK, what="D5")
+    wait(lambda: app.controller.live.tree.nodes["C5"].state == P.HS_OK, what="C5")
     return t
 
 
 def test_link_health_comes_up(app):
     connect(app)
     tree = app.controller.live.tree
-    for nid in ("D1", "D2", "D3", "D4", "D5", "D6", "A4", "B1", "B2"):
+    for nid in ("C1", "C2", "C3", "C4", "C5", "C6", "M4", "S1", "S2"):
         assert tree.nodes[nid].state == P.HS_OK, (nid, tree.nodes[nid].reason)
-    assert tree.nodes["C2"].state == P.HS_BLOCKED          # not zeroed yet
+    assert tree.nodes["T2"].state == P.HS_BLOCKED          # not zeroed yet
 
 
 def test_gating_refuses_with_reasons(app):
     connect(app, SimFaults(switch_armed=False))
-    wait(lambda: app.controller.live.tree.nodes["B1"].state == P.HS_BLOCKED, what="B1 blocked")
+    wait(lambda: app.controller.live.tree.nodes["S1"].state == P.HS_BLOCKED, what="S1 blocked")
     with pytest.raises(ActionRefused) as e:
         app.controller.enable()
-    assert "B1" in e.value.result.nodes
+    assert "S1" in e.value.result.nodes
     r = app.controller.can("trajectory")
-    assert not r.ok and any("B1" in s for s in r.reasons)
+    assert not r.ok and any("S1" in s for s in r.reasons)
 
 
 def test_enable_calibrate_record_playback(app):
@@ -62,7 +62,7 @@ def test_enable_calibrate_record_playback(app):
     app.controller.calibrate()
     wait(lambda: app.controller.live.health_fw and app.controller.live.health_fw.calib_stage == P.CAL_DONE,
          timeout=40, what="calibration done")
-    wait(lambda: app.controller.live.tree.nodes["C2"].state == P.HS_OK, what="C2 ok")
+    wait(lambda: app.controller.live.tree.nodes["T2"].state == P.HS_OK, what="T2 ok")
     cfg = app.controller.live.config
     assert cfg.limits_valid and cfg.limit_left_deg < -30 and cfg.limit_right_deg > 30
     assert abs(app.controller.live.position) < 3.0           # centred and zeroed
@@ -94,15 +94,15 @@ def test_trip_latches_and_blocks(app):
     wait(lambda: app.controller.live.ctrl_state == P.CS_HOLD, what="HOLD")
     t.sim.f.switch_armed = False
     wait(lambda: app.controller.live.ctrl_state == P.CS_TRIPPED, what="trip")
-    wait(lambda: app.controller.live.tree.nodes["B2"].state == P.HS_FAIL, what="B2 fail")
+    wait(lambda: app.controller.live.tree.nodes["S2"].state == P.HS_FAIL, what="S2 fail")
     assert app.controller.live.health_fw.trip_code == P.TRIP_SWITCH_OPENED
     with pytest.raises(ActionRefused):
         app.controller.enable()
     t.sim.f.switch_armed = True
-    wait(lambda: app.controller.live.tree.nodes["B1"].state == P.HS_OK, what="B1 ok")
+    wait(lambda: app.controller.live.tree.nodes["S1"].state == P.HS_OK, what="S1 ok")
     app.controller.clear_trip()
     wait(lambda: app.controller.live.ctrl_state == P.CS_REST, what="REST")
-    wait(lambda: app.controller.live.tree.nodes["B2"].state == P.HS_OK, what="B2 ok")
+    wait(lambda: app.controller.live.tree.nodes["S2"].state == P.HS_OK, what="S2 ok")
     app.controller.enable()
     wait(lambda: app.controller.live.ctrl_state == P.CS_HOLD, what="HOLD again")
 

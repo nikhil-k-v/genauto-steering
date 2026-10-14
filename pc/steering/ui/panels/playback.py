@@ -48,24 +48,25 @@ class PlaybackPanel:
                                                       width=100, callback=safe(self._mark))
                     self.tags["coll"] = dpg.add_combo(["all"] + self.store.collections(), default_value="all", width=110,
                                                       callback=safe(self._mark))
-                    self.tags["search"] = dpg.add_input_text(hint="search", width=150, callback=safe(self._mark))
+                    self.tags["search"] = T.text_input("", 150, "search", callback=safe(self._mark))
                 dpg.add_separator()
                 with dpg.child_window(tag="lib_list", border=False):
                     pass
             with dpg.child_window(border=False, no_scrollbar=True, tag="pb_right"):
                 with dpg.group(horizontal=True):
                     self.tags["title"] = dpg.add_text("select a recording", color=T.ACCENT)
-                    self.tags["pin"] = dpg.add_button(label="pin", width=70, callback=safe(self._toggle_pin))
-                    dpg.add_button(label="open folder", width=100, callback=safe(self._open_folder))
-                    dpg.add_button(label="delete", width=70, callback=safe(self._delete))
+                    T.bind_font(self.tags["title"], "head")
+                    self.tags["pin"] = T.action("pin", "ghost", safe(self._toggle_pin), 70)
+                    T.action("open folder", "ghost", safe(self._open_folder), 100)
+                    T.action("delete", "ghost", safe(self._delete), 70)
                 with dpg.group(horizontal=True):
                     dpg.add_text("speed", color=T.DIM)
                     self.tags["speed"] = dpg.add_slider_float(default_value=1.0, min_value=0.25, max_value=2.0, width=160, format="x%.2f")
-                    b = dpg.add_button(label="> Play back on motor", width=190, callback=safe(self._play))
+                    dpg.bind_item_theme(self.tags["speed"], T.theme("slider"))
+                    b = T.action("Play back on motor", "accent", safe(self._play), 190)
                     g.bind(b, "playback", "Streams this recording's position trace to the motor. A new recording <name>_pbNN is created and linked to it.")
-                    dpg.bind_item_theme(b, T.theme("btn_accent"))
-                    b = dpg.add_button(label="STOP Stop", width=70, callback=safe(self.c.stop_all)); g.bind(b, "stop_stream")
-                    self.tags["pb_status"] = dpg.add_text("", color=T.DIM)
+                    b = T.action("Stop", "bad", safe(self.c.stop_all), 70); g.bind(b, "stop_stream")
+                    self.tags["pb_status"] = T.mono_text("", color=T.DIM)
                 for key, label, series in (("pos", "deg", ("setpoint", "target", "position")),
                                            ("err", "error deg", ("error",)),
                                            ("vel", "deg/s", ("velocity",)),
@@ -83,20 +84,22 @@ class PlaybackPanel:
                         dpg.bind_item_theme(f"pb_trim_{key}", T.series_theme("error"))
                 with dpg.group(horizontal=True):
                     self.tags["cursor"] = dpg.add_slider_float(label="cursor", default_value=0, min_value=0, max_value=1, width=380, format="%.2f s", callback=safe(self._cursor))
-                    self.tags["cursor_txt"] = dpg.add_text("", color=T.DIM)
+                    self.tags["cursor_txt"] = T.mono_text("", color=T.DIM)
                 with dpg.group(horizontal=True):
                     self.tags["trim"] = dpg.add_slider_float(label="trim end", default_value=0, min_value=0, max_value=1, width=380, format="%.2f s", callback=safe(self._trim_preview))
-                    dpg.add_button(label="Trim file permanently", width=170, callback=safe(self._trim))
+                    T.action("Trim file permanently", "warn", safe(self._trim), 190)
                 with dpg.group(horizontal=True):
-                    with dpg.child_window(width=460, height=170, border=True):
-                        dpg.add_text("METRICS", color=T.DIM)
-                        self.tags["metrics"] = dpg.add_text("", wrap=440)
-                    with dpg.child_window(width=-1, height=170, border=True):
-                        dpg.add_text("SETUP | HEALTH DURING RECORDING", color=T.DIM)
-                        self.tags["setup"] = dpg.add_text("", wrap=520)
+                    with dpg.child_window(width=460, height=170, border=True) as m1:
+                        dpg.bind_item_theme(m1, T.theme("readout"))
+                        T.section("Metrics")
+                        self.tags["metrics"] = T.mono_text("", wrap=440)
+                    with dpg.child_window(width=-1, height=170, border=True) as m2:
+                        dpg.bind_item_theme(m2, T.theme("readout"))
+                        T.section("Setup  |  health during recording")
+                        self.tags["setup"] = T.mono_text("", wrap=520)
                 with dpg.group(horizontal=True):
-                    self.tags["notes"] = dpg.add_input_text(hint="notes", width=460, callback=safe(self._save_notes), on_enter=True)
-                    self.tags["tagsin"] = dpg.add_input_text(hint="tags, comma separated", width=300, callback=safe(self._save_tags), on_enter=True)
+                    self.tags["notes"] = T.text_input("", 460, "notes", callback=safe(self._save_notes), on_enter=True)
+                    self.tags["tagsin"] = T.text_input("", 300, "tags, comma separated", callback=safe(self._save_tags), on_enter=True)
 
     def on_resize(self, w, h):
         ph = max(110, (h - 330) // 4)
@@ -126,12 +129,13 @@ class PlaybackPanel:
         label = ("    > " if depth else "") + ("[P] " if r.pinned else "") + r.name
         with dpg.group(horizontal=True, parent="lib_list"):
             b = dpg.add_selectable(label=label, default_value=bool(sel), width=LIB_W - 150, callback=safe(self._select), user_data=r.uid)
+            dpg.bind_item_theme(b, T.theme("row")); T.bind_font(b, "mono")
             info = f"{r.created_str[5:16]}"
             if not depth and r.playback_count:
                 info += f" | {r.playback_count} pb"
             if r.health_worst:
                 info += f" | {r.health_worst}"
-            dpg.add_text(info, color=T.BAD if r.health_worst else T.DIM)
+            it = dpg.add_text(info, color=T.BAD if r.health_worst else T.DIM); T.bind_font(it, "mono_s")
         with dpg.tooltip(b):
             m = r.metrics
             dpg.add_text(f"{r.kind} | {r.duration_s:.1f}s | {r.samples} samples | {r.collection}\n"

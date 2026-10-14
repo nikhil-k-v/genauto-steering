@@ -52,7 +52,17 @@ log = logging.getLogger(__name__)
 
 REMOTE_ACTIONS_SAFE = {"disable", "emergency_rest", "record_start", "record_stop", "stop_stream"}
 
-PHONE_DIR = Path(__file__).resolve().parents[3] / "phone"
+REPO = Path(__file__).resolve().parents[3]
+PHONE_DIR = REPO / "phone"
+WEB_DIR = REPO / "web"
+DOCS_DIR = REPO / "docs"
+
+DOC_PAGES = [("README", "Overview", REPO / "README.md"), ("ARCHITECTURE", "Architecture", DOCS_DIR / "ARCHITECTURE.md"),
+             ("HARDWARE", "Hardware", DOCS_DIR / "HARDWARE.md"), ("PROTOCOL", "Protocol", DOCS_DIR / "PROTOCOL.md"),
+             ("HEALTH", "Health & status", DOCS_DIR / "HEALTH.md"), ("HEALTH_REFERENCE", "Health reference", DOCS_DIR / "HEALTH_REFERENCE.md"),
+             ("SAFETY", "Safety", DOCS_DIR / "SAFETY.md"), ("DATA", "Data", DOCS_DIR / "DATA.md"),
+             ("OPERATIONS", "Operations", DOCS_DIR / "OPERATIONS.md"), ("MIGRATION", "Migration", DOCS_DIR / "MIGRATION.md"),
+             ("ROADMAP", "Roadmap", DOCS_DIR / "ROADMAP.md")]
 
 
 class Hub:
@@ -95,9 +105,126 @@ class Hub:
             log.error("websocket validation error: %s", exc.errors())
             await sock.close()
 
+        from fastapi.staticfiles import StaticFiles
+        from ..health.model import GROUPS, NODES
+        from ..data.analysis import load_csv
+
         @api.get("/")
         async def index():
+            return FileResponse(WEB_DIR / "index.html")
+
+        @api.get("/phone")
+        async def phone_page():
             return FileResponse(PHONE_DIR / "index.html")
+
+        api.mount("/diagrams", StaticFiles(directory=str(DOCS_DIR / "diagrams")), name="diagrams")
+        api.mount("/screenshots", StaticFiles(directory=str(DOCS_DIR / "screenshots")), name="screenshots")
+
+        @api.get("/api/health")
+        async def api_health():
+            tree = hub.app.controller.live.tree
+            return {"groups": [{"id": g, "name": gd.name, "short": gd.short, "question": gd.question,
+                                "state": tree.group_state(g)[0]} for g, gd in GROUPS.items()],
+                    "nodes": [{"id": n.id, "group": n.group, "name": n.name, "ok": n.ok_means, "bad": n.bad_means,
+                               "fix": n.fix, "source": n.source, "optional": n.optional,
+                               "state": tree.nodes[n.id].state, "reason": tree.nodes[n.id].reason,
+                               "since": tree.nodes[n.id].since} for n in NODES]}
+
+        @api.get("/api/recordings")
+        async def api_recordings(sort: str = "recent", collection: str = "", search: str = "", playbacks: int = 1):
+            recs = hub.app.store.list(sort=sort, collection=collection or None, search=search, include_playbacks=False)
+            out = []
+            for r in recs:
+                d = hub._rec_json(r)
+                if playbacks:
+                    d["playbacks"] = [hub._rec_json(p) for p in hub.app.store.playbacks_of(r.uid)]
+                out.append(d)
+            return {"recordings": out, "collections": hub.app.store.collections()}
+
+        @api.get("/api/recordings/{uid}")
+        async def api_recording(uid: str):
+            r = hub.app.store.get(uid)
+            if not r:
+                return JSONResponse({"error": "not found"}, status_code=404)
+            d = hub._rec_json(r)
+            d["playbacks"] = [hub._rec_json(p) for p in hub.app.store.playbacks_of(r.uid)]
+            if r.parent_uid:
+                pr = hub.app.store.get(r.parent_uid)
+                d["parent"] = hub._rec_json(pr) if pr else None
+            for name in ("events.jsonl", "health.jsonl", "capture.json"):
+                p = r.dir / name
+                d["has_" + name.split(".")[0]] = p.exists()
+            d["video"] = next((f.name for f in r.dir.glob("video.*")), None)
+            return d
+
+        @api.get("/api/recordings/{uid}/data")
+        async def api_recording_data(uid: str, max_points: int = 4000):
+            r = hub.app.store.get(uid)
+            if not r or not r.csv.exists():
+                return JSONResponse({"error": "not found"}, status_code=404)
+            d = load_csv(r.csv)
+            n = len(d["t_s"])
+            step = max(1, n // max_points)
+            def col(k):
+                return [None if x != x else round(float(x), 4) for x in d[k][::step]]
+            return {"n": n, "step": step, "columns": {k: col(k) for k in d}}
+
+        @api.get("/api/recordings/{uid}/events")
+        async def api_recording_events(uid: str):
+            r = hub.app.store.get(uid)
+            if not r:
+                return JSONResponse({"error": "not found"}, status_code=404)
+            out = {}
+            for name in ("events", "health"):
+                p = r.dir / f"{name}.jsonl"
+                lines = []
+                if p.exists():
+                    for line in p.read_text().splitlines()[:2000]:
+                        try:
+                            lines.append(json.loads(line))
+                        except Exception:
+                            pass
+                out[name] = lines
+            return out
+
+        @api.get("/api/recordings/{uid}/video")
+        async def api_recording_video(uid: str):
+            r = hub.app.store.get(uid)
+            v = next(iter(r.dir.glob("video.*")), None) if r else None
+            if not v:
+                return JSONResponse({"error": "no video"}, status_code=404)
+            return FileResponse(v)
+
+        @api.post("/api/recordings/{uid}")
+        async def api_recording_edit(uid: str, request: Request):
+            body = await request.json()
+            st = hub.app.store
+            if st.get(uid) is None:
+                return JSONResponse({"error": "not found"}, status_code=404)
+            if "pinned" in body:
+                st.set_pinned(uid, bool(body["pinned"]))
+            if "notes" in body:
+                st.set_notes(uid, str(body["notes"]))
+            if "tags" in body:
+                st.set_tags(uid, [t for t in str(body["tags"]).split(",")])
+            if "name" in body and body["name"]:
+                st.rename(uid, str(body["name"]))
+            if body.get("delete"):
+                st.soft_delete(uid)
+            return hub._rec_json(st.get(uid))
+
+        @api.get("/api/docs")
+        async def api_docs():
+            return {"docs": [{"id": i, "title": t} for i, t, p in DOC_PAGES if p.exists()]}
+
+        @api.get("/api/docs/{doc_id}")
+        async def api_doc(doc_id: str):
+            for i, t, p in DOC_PAGES:
+                if i == doc_id and p.exists():
+                    text = p.read_text()
+                    html = hub._markdown(text)
+                    return {"id": i, "title": t, "html": html}
+            return JSONResponse({"error": "not found"}, status_code=404)
 
         @api.get("/status")
         async def status():
@@ -217,7 +344,7 @@ class Hub:
                     last_health = now
                     tree = hub.app.controller.live.tree
                     msgs.append({"type": "health", "summary": tree.summary_line(),
-                                 "groups": {g: tree.group_state(g)[0] for g in "ABCDEF"},
+                                 "groups": {g: tree.group_state(g)[0] for g in "MSTCD"},
                                  "bad": [{"id": s.id, "s": s.state, "r": s.reason} for s in tree.bad_nodes()]})
                 for m in msgs:
                     data = json.dumps(m)
@@ -237,6 +364,7 @@ class Hub:
         config = uvicorn.Config(api, host=self.host, port=self.port, log_level="warning")
         self._server = uvicorn.Server(config)
         self.status["url"] = f"http://<laptop-ip>:{self.port}/"
+        self.status["pages"] = {"web": "/", "phone": "/phone"}
         try:
             self._server.run()
         except Exception as e:
@@ -246,6 +374,26 @@ class Hub:
             self.status["running"] = False
 
     # ---- helpers -----------------------------------------------------------------------
+    @staticmethod
+    def _rec_json(r) -> dict:
+        return {"uid": r.uid, "name": r.name, "kind": r.kind, "collection": r.collection, "created_at": r.created_at,
+                "created_str": r.created_str, "parent_uid": r.parent_uid, "duration_s": r.duration_s, "samples": r.samples,
+                "pinned": r.pinned, "tags": r.tags, "notes": r.notes, "metrics": r.metrics, "health_summary": r.health_summary,
+                "health_worst": r.health_worst, "gains": r.gains, "has_video": r.has_video, "playback_count": r.playback_count,
+                "path": r.path}
+
+    @staticmethod
+    def _markdown(text: str) -> str:
+        # make relative doc links/images resolve inside the web UI
+        text = text.replace("](diagrams/", "](/diagrams/").replace("](docs/diagrams/", "](/diagrams/")
+        text = text.replace("](screenshots/", "](/screenshots/").replace("](docs/screenshots/", "](/screenshots/")
+        try:
+            import markdown
+            return markdown.markdown(text, extensions=["tables", "fenced_code", "toc"])
+        except Exception:
+            import html
+            return "<pre>" + html.escape(text) + "</pre>"
+
     def _rec_msg(self) -> dict:
         r = self.app.recorder
         return {"active": r.active, "uid": r.rec.uid if r.rec else None, "name": r.rec.name if r.rec else None,

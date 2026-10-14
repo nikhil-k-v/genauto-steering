@@ -1,6 +1,4 @@
 #include <Arduino.h>
-#include <SPI.h>
-#include <RF24.h>
 #include <string.h>
 #include "comms.h"
 #include "config.h"
@@ -9,13 +7,9 @@
 #include "can_motor.h"
 #include "health.h"
 
-static RF24        s_radio(PIN_NRF_CE, PIN_NRF_CSN);
-static bool        s_rf_ok = false;
 static FrameParser s_usb_parser;
 static uint8_t     s_tx_seq = 0;
-static uint32_t    s_rf_telem_last_ms = 0;
 
-bool comms_rf_present() { return s_rf_ok; }
 uint32_t comms_frames_rx() { return s_usb_parser.frames_ok; }
 
 // ---- send helpers ----------------------------------------------------------------
@@ -24,19 +18,7 @@ static void usb_send(const void* payload, uint8_t len) {
     const uint8_t n = protocol_encode(buf, payload, len, s_tx_seq++);
     Serial.write(buf, n);
 }
-static void rf_send(const void* payload, uint8_t len) {
-    if (!s_rf_ok) return;
-    s_radio.stopListening();
-    s_radio.write(payload, len);     // returns false on no-ack; we don't retry (telemetry is periodic)
-    s_radio.startListening();
-}
-static void pc_send(const void* payload, uint8_t len) {
-#if WIRED_MODE
-    usb_send(payload, len);
-#else
-    rf_send(payload, len);
-#endif
-}
+static void pc_send(const void* payload, uint8_t len) { usb_send(payload, len); }
 
 static void send_event(uint8_t code, uint16_t arg, const char* text) {
     EventPacket e; memset(&e, 0, sizeof e);
@@ -84,7 +66,7 @@ static void dispatch(const uint8_t* p, uint8_t len) {
     if (len < 1) return;
     // Any well-formed PC packet proves the PC is alive (the 200 Hz setpoint
     // stream is a far better liveness signal than the 5 Hz heartbeat alone).
-    if (p[0] != PKT_JOYSTICK && p[0] != PKT_BRIDGE_STATUS) control_note_pc_heartbeat();
+    control_note_pc_heartbeat();
     switch (p[0]) {
     case PKT_GAINS:        if (len == sizeof(GainsPacket)) { auto g = (const GainsPacket*)p; control_set_gains(g->kp, g->kd, g->ki, g->tff_Nm); comms_emit_config(); } break;
     case PKT_SETPOINT:     if (len == sizeof(SetpointPacket)) { auto s = (const SetpointPacket*)p; control_setpoint(s->seq, s->pos_deg, s->vel_ff_deg_s, s->flags); } break;
@@ -95,8 +77,6 @@ static void dispatch(const uint8_t* p, uint8_t len) {
     case PKT_HEARTBEAT:    if (len == sizeof(HeartbeatPacket)) { auto h = (const HeartbeatPacket*)p; control_note_pc_heartbeat(); health_set_pc_bits(h->pc_health_bits | 0x8000);
                                if (!(h->flags & HB_UI_ALIVE) && (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST)) { char w[20]; control_command(CMD_DISABLE, 0, 0, w); } } break;
     case PKT_LIMITS:       if (len == sizeof(LimitsPacket)) { auto l = (const LimitsPacket*)p; control_set_limits(l->left_deg, l->right_deg); comms_emit_config(); } break;
-    case PKT_JOYSTICK:     if (len == sizeof(JoystickPacket)) { auto j = (const JoystickPacket*)p; control_joystick(j->x, j->y, j->buttons); control_note_bridge(); } break;
-    case PKT_BRIDGE_STATUS: control_note_bridge(); break;
     default: break;
     }
 }
@@ -104,18 +84,6 @@ static void dispatch(const uint8_t* p, uint8_t len) {
 // ---- transports ----------------------------------------------------------------------
 void comms_begin() {
     Serial.begin(2000000);
-    s_rf_ok = s_radio.begin();
-    if (s_rf_ok) {
-        s_radio.setChannel(NRF_CHANNEL);
-        s_radio.setPALevel(RF24_PA_LOW);
-        s_radio.setDataRate(RF24_2MBPS);
-        s_radio.setAutoAck(true);
-        s_radio.setRetries(1, 2);
-        s_radio.enableDynamicPayloads();
-        s_radio.openWritingPipe((const uint8_t*)NRF_ADDR_BRIDGE);
-        s_radio.openReadingPipe(1, (const uint8_t*)NRF_ADDR_TEENSY);
-        s_radio.startListening();
-    }
 }
 
 void comms_poll() {
@@ -124,17 +92,6 @@ void comms_poll() {
     while (budget-- && Serial.available()) {
         const uint8_t b = (uint8_t)Serial.read();
         if (s_usb_parser.push(b)) dispatch(s_usb_parser.payload, s_usb_parser.len);
-    }
-    if (s_rf_ok) {
-        uint8_t pipe;
-        int n = 8;
-        while (n-- && s_radio.available(&pipe)) {
-            const uint8_t len = s_radio.getDynamicPayloadSize();
-            uint8_t buf[32];
-            if (len == 0 || len > 32) { s_radio.flush_rx(); break; }
-            s_radio.read(buf, len);
-            dispatch(buf, len);
-        }
     }
 }
 
@@ -149,19 +106,11 @@ void comms_emit_telemetry() {
     t.current_A = g_motor.cur_A;
     t.torque_cmd_Nm = g_ctl.torque_cmd_Nm;
     pc_send(&t, sizeof t);
-#if WIRED_MODE
-    // 20 Hz copy to the bridge so its OLED can draw the dial
-    const uint32_t now = millis();
-    if (now - s_rf_telem_last_ms >= 50) { s_rf_telem_last_ms = now; rf_send(&t, sizeof t); }
-#endif
 }
 
 void comms_emit_health(const HealthSnapshot& s) {
     HealthPacket h; health_fill_packet(h, s);
     pc_send(&h, sizeof h);
-#if WIRED_MODE
-    rf_send(&h, sizeof h);
-#endif
 }
 
 void comms_emit_events() {

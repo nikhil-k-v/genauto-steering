@@ -22,29 +22,27 @@ class TuningPanel:
 
     def build(self):
         g = self.ui.gate
-        dpg.add_text("CURRENT CONTROL", color=T.DIM)
-        self.tags["mode"] = dpg.add_text("", wrap=900)
+        T.section("Current control")
+        self.tags["mode"] = T.mono_text("", wrap=900)
         dpg.add_spacer(height=8)
         with dpg.group(horizontal=True):
             with dpg.child_window(width=420, height=190, border=True):
-                dpg.add_text("STEP TEST", color=T.ACCENT)
+                T.section("Step test")
                 dpg.add_text("Jumps the setpoint by `amplitude`, holds, returns. Reports rise / overshoot / settling / steady-state error.", wrap=390)
-                self.tags["s_amp"] = dpg.add_input_float(label="amplitude [deg]", default_value=30.0, width=120, step=0)
-                self.tags["s_hold"] = dpg.add_input_float(label="hold [s]", default_value=3.0, width=120, step=0)
-                b = dpg.add_button(label="Run step test", width=160, callback=safe(self._step))
+                self.tags["s_amp"] = T.number("amplitude [deg]", 30.0, 100, "%.1f")
+                self.tags["s_hold"] = T.number("hold [s]", 3.0, 100, "%.1f")
+                b = T.action("Run step test", "accent", safe(self._step), 160)
                 g.bind(b, "tests", "Runs on the Teensy; recording starts and stops automatically.")
-                dpg.bind_item_theme(b, T.theme("btn_accent"))
             with dpg.child_window(width=420, height=190, border=True):
-                dpg.add_text("RELAY AUTO-TUNE (Astrom-Hagglund)", color=T.ACCENT)
+                T.section("Relay auto-tune (Astrom-Hagglund)")
                 dpg.add_text("Bang-bang +/-2 Nm around the current position; the oscillation gives Ku and Tu, from which gains are proposed.", wrap=390)
-                self.tags["r_hys"] = dpg.add_input_float(label="hysteresis [deg]", default_value=1.0, width=120, step=0)
-                self.tags["r_dur"] = dpg.add_input_float(label="duration [s]", default_value=8.0, width=120, step=0)
-                b = dpg.add_button(label="Run relay test", width=160, callback=safe(self._relay))
+                self.tags["r_hys"] = T.number("hysteresis [deg]", 1.0, 100, "%.1f")
+                self.tags["r_dur"] = T.number("duration [s]", 8.0, 100, "%.1f")
+                b = T.action("Run relay test", "accent", safe(self._relay), 160)
                 g.bind(b, "tests", "Runs on the Teensy; recording starts and stops automatically.")
-                dpg.bind_item_theme(b, T.theme("btn_accent"))
         dpg.add_spacer(height=8)
-        dpg.add_text("LAST RESULT", color=T.DIM)
-        self.tags["result"] = dpg.add_text("-", wrap=900)
+        T.section("Last result")
+        self.tags["result"] = T.mono_text("-", wrap=900)
         with dpg.group(tag="proposals"):
             pass
         dpg.add_spacer(height=8)
@@ -90,8 +88,8 @@ class TuningPanel:
                     dpg.delete_item("proposals", children_only=True)
                     for name, gg in propose_gains(Ku, Tu).items():
                         with dpg.group(horizontal=True, parent="proposals"):
-                            dpg.add_button(label=f"use {name}", width=200, callback=safe(self._use), user_data=gg)
-                            dpg.add_text(f"Kp {gg['kp']:.1f}  Kd {gg['kd']:.2f}  Ki {gg['ki']:.2f}")
+                            T.action(f"use {name}", "neutral", safe(self._use), 220, user_data=gg)
+                            T.mono_text(f"Kp {gg['kp']:.1f}  Kd {gg['kd']:.2f}  Ki {gg['ki']:.2f}")
                 else:
                     dpg.set_value(self.tags["result"], f"{rec.name}: not enough oscillation to estimate Ku/Tu (try a longer duration or smaller hysteresis)")
 

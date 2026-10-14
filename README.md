@@ -1,85 +1,82 @@
 # Gen Auto — Steering Actuator
 
-Firmware + PC software for the Gen Auto steering robot: a Yobotics **BM-series** (BM-24 per the project
-page, see HARDWARE) quasi-direct-drive actuator clamped to a car's steering wheel, driven by a **Teensy 4.1** over CAN, supervised from a
-laptop running a **Python (Dear PyGui) desktop app**, with an optional Arduino joystick/RF bridge and
-an optional phone for synced video/IMU capture.
+Firmware + laptop software for the Gen Auto steering robot: a Yobotics **BM-series** QDD actuator
+(BM-24 per the project page, see HARDWARE) clamped to a car's steering wheel, driven by a **Teensy 4.1**
+over CAN (the "CCM"), supervised from a laptop running a **Python desktop app** (Dear PyGui), with an
+optional **web hub** (browser UI for status / recordings / docs, phone video+IMU capture, planner input).
 
-This is the v2 rewrite of the original `steering_tuner` / `MotorControlWebGUI` software. Same hardware,
-new architecture: **every subsystem and link has a health node with a reason, every control is gated by
-those nodes, every recording carries its own evidence, and the firmware owns safety.**
-
-![system map](docs/diagrams/02_system_map.svg)
+![system overview](docs/diagrams/01_system_overview.svg)
 
 ## What it does
 
 | Task | How |
 |---|---|
-| Find the steering end stops and set zero at the exact centre | **Calibration → Auto-calibrate** (firmware routine, bounded torque, confirms stops against friction) |
+| Know what state everything is in | The **system strip** at the top of the app: laptop ⇄ USB ⇄ Teensy ⇄ CAN ⇄ motor, plus safety — each tile coloured by its status group (**M** motor, **S** safety, **T** teensy, **C** comms, **D** data) |
+| Know *why* a button is grey | Hover it: it lists the blocking checks and draws lines to the tiles they live in; the **Health** tab explains every check (what OK means, what bad means, the fix) |
+| Find the steering end stops and set zero at the exact centre | **Calibration → Auto-calibrate** (firmware routine, bounded torque) |
 | Record a steering motion by hand | **Enable → Free-spin → Record**, turn the wheel, **Stop** |
-| Replay it on the motor, compare runs | **Playback & Library → Play back** — creates `<name>_pb01…`, linked to the parent, with metrics |
+| Replay it on the motor and compare runs | **Playback & Library → Play back** — creates `<name>_pb01…` linked to the parent, with metrics |
 | Tune the loop | **Tuning → Step test / Relay auto-tune** → proposed gains → Apply |
-| Know *why* something isn't working | Top-bar **A–F boxes** → **Health** tab (node, reason, what it blocks, fix) → `data/logs/` |
-| Capture phone video / IMU in sync with a recording | **Settings → run hub**, open the URL on the phone, arm camera |
-| Let the vehicle stack (ROS 2 / Orin) steer | hub `setpoint` stream → same gating as a trajectory (Settings → allow remote control) |
+| Browse data / read docs from any device | **Settings → run hub**, open `http://<laptop>:8765/` — status, recordings viewer, data handling, docs with diagrams |
+| Phone video / IMU synced to a recording | same hub, **Phone capture** page |
+| Let the vehicle stack (ROS 2 / Orin) steer | hub `setpoint` stream → same gating as a trajectory |
 
 ## Quick start
 
 ```bash
-# 1. firmware (PlatformIO)
-cd firmware/teensy && pio run -e teensy41 -t upload          # wired (USB) build
-cd ../arduino_bridge && pio run -e uno -t upload              # optional joystick/RF bridge
+# firmware (PlatformIO)
+cd firmware/teensy && pio run -t upload
 
-# 2. PC app
+# laptop app
 cd pc && pip install -e ".[server,dev]"
 python -m steering ui                 # auto-connects to the Teensy
-python -m steering ui --sim           # no hardware: full app against the built-in simulator
-python -m pytest                      # end-to-end tests run against the simulator
+python -m steering ui --sim           # no hardware: whole app against the built-in simulator
+python -m pytest                      # end-to-end tests on the simulator
 ```
 
-First run, in the app: **Connect** → close the idle switch (B1 green) → **Calibration → Auto-calibrate**
-→ **Enable** → drag the setpoint slider. Everything else is reachable from the tabs; if a button is
-greyed out, hover it: the tooltip lists the exact health nodes blocking it.
+First run: **Connect** → close the idle switch (S tile green) → **Calibration → Auto-calibrate** → **Enable**
+→ drag the wheel slider. If something is grey, hover it.
 
-![live](docs/screenshots/03_live_hold.png)
+![desktop app](docs/screenshots/03_live_hold.png)
+![connection lines](docs/screenshots/11_connection_lines.png)
+![web ui](docs/screenshots/web_01_system.png)
 
 ## Repository map
 
 ```
-protocol/            protocol.h  — THE wire contract (framing, packet structs, enums); logo bitmap
+protocol/            protocol.h — THE wire contract (framing, packets, enums); splash bitmap
 firmware/teensy/     config.h (all tunables) · can_motor · control (1 kHz ISR, trips, calibration, tests)
-                     · health · comms · display · main        [PlatformIO]
-firmware/arduino_bridge/  joystick + NRF24 bridge + 0.96" OLED      [PlatformIO]
-pc/steering/         protocol.py (mirror, tested against the header) · link · bus
-   health/           model.py (every node, documented) · evaluator · gating (every action's requirements)
+                     · health · comms · display · main          [PlatformIO]
+pc/steering/         protocol.py (mirror, tested against the header) · link · bus · sim (fake Teensy+motor)
+   health/           model.py (every check, documented) · evaluator · gating (every action's requirements)
    core/             app (composition, housekeeping, shutdown→REST) · controller (gated actions) · settings
-   control/          trajectories (generators, from_recording) · streamer (200 Hz)
-   data/             store (folders + SQLite catalog) · recorder · analysis (metrics, relay/step, trim)
-   server/           hub (FastAPI/WS: phones & future devices) · devices/ (interface for throttle etc.)
-   ui/               Dear PyGui app · gate binder · safe callbacks · panels/
-   sim.py            fake Teensy + fake BM-18 behind the same Transport interface (fault injection)
-pc/tests/            protocol sync, end-to-end flows on the simulator, hub
-pc/tools/ui_smoke.py scripted headless UI session (used to make docs/screenshots)
-phone/index.html     phone capture page (camera, IMU, NTP-style time sync)
-docs/                ARCHITECTURE · HARDWARE · PROTOCOL · HEALTH · SAFETY · DATA · OPERATIONS · MIGRATION · ROADMAP
-scripts/             check_firmware.sh (host g++ type-check of the firmware)
+   control/          trajectories · streamer (200 Hz)
+   data/             store (folders + SQLite catalog) · recorder · analysis
+   server/           hub (FastAPI/WS: web UI, phone, planner) · devices/ (interface for the throttle robot)
+   ui/               Dear PyGui app · system strip · dependency overlay · gate binder · panels/ · fonts/
+web/index.html       browser UI served by the hub (system, recordings, docs)
+phone/index.html     phone capture page (camera, IMU, time sync)
+docs/                guides + docs/diagrams/gen.py (generates every SVG) + screenshots
+scripts/             check_firmware.sh (host g++ type-check); pc/tools/ui_smoke.py (headless UI session)
 ```
 
 ## Documentation
 
-* [ARCHITECTURE](docs/ARCHITECTURE.md) — goal → problems → solutions → tasks; compute & comm; control cascade; state machine
-* [HARDWARE](docs/HARDWARE.md) — electrical system, pinout, CAN bus, BM-18 datasheet facts
+* [ARCHITECTURE](docs/ARCHITECTURE.md) — goal → problems → solutions; compute & comms; control cascade; states
+* [HARDWARE](docs/HARDWARE.md) — electrical system, pinout, CAN, motor facts
 * [PROTOCOL](docs/PROTOCOL.md) — framing, packets, CAN frames
-* [HEALTH](docs/HEALTH.md) — the status bar explained, root-cause walkthrough, OLED legend; [generated node reference](docs/HEALTH_REFERENCE.md)
-* [SAFETY](docs/SAFETY.md) — trips, layers, what happens when each thing dies
-* [DATA](docs/DATA.md) — folders, naming, lineage, metrics, logs
+* [HEALTH](docs/HEALTH.md) — the status tiles explained, root-cause walkthrough; [generated node reference](docs/HEALTH_REFERENCE.md)
+* [SAFETY](docs/SAFETY.md) — trips and layers
+* [DATA](docs/DATA.md) — folders, lineage, metrics, logs
 * [OPERATIONS](docs/OPERATIONS.md) — procedures and debugging
-* [MIGRATION](docs/MIGRATION.md) — what changed from the old code and why (bugs found)
-* [ROADMAP](docs/ROADMAP.md) — throttle robot, multi-device, phone IMU
+* [MIGRATION](docs/MIGRATION.md) — what changed from the old code and why; hardware verification checklist
+* [ROADMAP](docs/ROADMAP.md)
+
+All of these are also served, with the diagrams, by the web hub under **Docs**.
 
 ## Status
 
-* Firmware: compiles cleanly under the host type-check (`scripts/check_firmware.sh`); PlatformIO build
-  not run in this environment (no cross toolchain) — see MIGRATION §"Verify on hardware".
-* PC: 12 tests pass against the simulator; the UI smoke script drives every tab headlessly.
-* Hardware assumptions are identical to the previous build (pins in `firmware/teensy/src/config.h`).
+* Firmware: host type-check clean (`scripts/check_firmware.sh`); PlatformIO build/flash still to be run on
+  hardware — see MIGRATION "Verify on hardware".
+* PC: tests pass against the simulator; `pc/tools/ui_smoke.py` drives every tab headlessly and produced the
+  screenshots above.

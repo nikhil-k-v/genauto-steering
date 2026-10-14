@@ -80,7 +80,7 @@ float control_pos_deg() { return rad2deg(g_motor.pos_rad) - g_ctl.pos_offset_deg
 
 bool control_motor_enabled() {
     switch (g_ctl.cs) {
-    case CS_HOLD: case CS_TRAJ: case CS_JOY: case CS_TEST: case CS_FREESPIN: case CS_CALIB: return true;
+    case CS_HOLD: case CS_TRAJ: case CS_TEST: case CS_FREESPIN: case CS_CALIB: return true;
     default: return false;
     }
 }
@@ -88,15 +88,13 @@ bool control_motor_enabled() {
 uint8_t control_telemetry_flags() {
     float lo, hi; active_limits(lo, hi);
     const bool at_limit = (g_ctl.sp_cmd_deg <= lo + 0.5f) || (g_ctl.sp_cmd_deg >= hi - 0.5f);
-    const bool joy = (ms_now() - g_ctl.joy_last_ms) < JOYSTICK_TIMEOUT_MS && g_ctl.joy_last_ms;
     return (control_motor_enabled()      ? TF_ENABLED      : 0)
          | (g_ctl.zeroed                 ? TF_ZEROED       : 0)
          | (at_limit                     ? TF_AT_LIMIT     : 0)
          | (g_ctl.switch_armed           ? TF_SWITCH_ARMED : 0)
          | (g_ctl.test_type != TEST_NONE ? TF_TEST_RUNNING : 0)
          | (g_ctl.limits_valid           ? TF_LIMITS_VALID : 0)
-         | (g_ctl.cs == CS_FREESPIN      ? TF_FREESPIN     : 0)
-         | (joy                          ? TF_JOY_PRESENT  : 0);
+         | (g_ctl.cs == CS_FREESPIN      ? TF_FREESPIN     : 0);
 }
 
 // ---- main-loop API ------------------------------------------------------------
@@ -127,21 +125,12 @@ void control_setpoint(uint16_t seq, float pos, float vel_ff, uint8_t flags) {
     interrupts();
 }
 
-void control_joystick(int16_t x, int16_t y, uint8_t buttons) {
-    (void)x; (void)buttons;
-    const float n = clampf((float)y / 512.f, -1.f, 1.f);
-    const float dead = fabsf(n) < 0.06f ? 0.f : n;
-    g_ctl.joy_rate_deg_s = dead * JOY_MAX_RATE_DEG_S;
-    g_ctl.joy_last_ms = ms_now();
-}
-
 void control_request_mode(uint8_t mode, bool sticky) {
     g_ctl.mode_req = sticky ? mode : MODE_AUTO;
     push_event(EV_CMD_ACCEPTED, PKT_MODE_REQUEST);
 }
 
 void control_note_pc_heartbeat() { g_ctl.pc_hb_last_ms = ms_now() | 1; }
-void control_note_bridge()       { g_ctl.bridge_last_ms = ms_now() | 1; }
 
 static bool reject(char* why, const char* msg) { strncpy(why, msg, 19); why[19] = 0; return false; }
 
@@ -200,7 +189,7 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
         if (!control_motor_enabled()) return reject(why, "motor not enabled");
         noInterrupts();
         g_ctl.sp_target_deg = control_pos_deg(); g_ctl.mode_req = MODE_HOLD;
-        if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_JOY) set_state(CS_HOLD);
+        if (g_ctl.cs == CS_TRAJ) set_state(CS_HOLD);
         interrupts();
         break;
     case CMD_CALIB_START:
@@ -315,7 +304,7 @@ static void run_safety(float pos_deg, float vel_deg_s, float cur_A, uint32_t now
     }
 
     // stall: only meaningful when we are actively servoing to a setpoint
-    if (g_ctl.cs == CS_HOLD || g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_JOY) {
+    if (g_ctl.cs == CS_HOLD || g_ctl.cs == CS_TRAJ) {
         if (fabsf(g_ctl.sp_cmd_deg - pos_deg) > STALL_ERROR_DEG) {
             if (!stall_start) stall_start = now_ms;
             else if (now_ms - stall_start > STALL_TIME_MS) { trip(TRIP_STALL, "stalled"); return; }
@@ -335,15 +324,12 @@ static void run_safety(float pos_deg, float vel_deg_s, float cur_A, uint32_t now
 
 // Resolve which source drives the setpoint while enabled.
 static void resolve_mode(uint32_t now_ms) {
-    if (g_ctl.cs != CS_HOLD && g_ctl.cs != CS_TRAJ && g_ctl.cs != CS_JOY) return;
-    const bool joy_fresh = g_ctl.joy_last_ms && (now_ms - g_ctl.joy_last_ms) < JOYSTICK_TIMEOUT_MS;
+    if (g_ctl.cs != CS_HOLD && g_ctl.cs != CS_TRAJ) return;
     const bool sp_fresh  = g_ctl.sp_last_ms  && (now_ms - g_ctl.sp_last_ms)  < SETPOINT_STREAM_TIMEOUT_MS;
     uint8_t want = CS_HOLD;
     switch (g_ctl.mode_req) {
-    case MODE_TRAJ: want = sp_fresh ? CS_TRAJ : CS_HOLD; break;
-    case MODE_JOY:  want = joy_fresh ? CS_JOY : CS_HOLD; break;
     case MODE_HOLD: want = CS_HOLD; break;
-    default:        want = sp_fresh ? CS_TRAJ : (joy_fresh ? CS_JOY : CS_HOLD); break;
+    default:        want = sp_fresh ? CS_TRAJ : CS_HOLD; break;   // AUTO / TRAJ
     }
     if (want != g_ctl.cs) {
         if (want == CS_HOLD) g_ctl.sp_target_deg = g_ctl.sp_cmd_deg;   // freeze where we are
@@ -506,10 +492,8 @@ void control_tick() {
         // step test falls through to the normal servo path
         [[fallthrough]];
     case CS_HOLD:
-    case CS_TRAJ:
-    case CS_JOY: {
+    case CS_TRAJ: {
         send_cmd = true;
-        if (g_ctl.cs == CS_JOY) g_ctl.sp_target_deg += g_ctl.joy_rate_deg_s * dt;
 
         // 1) limit the target, 2) slew the command toward it
         float lo, hi; active_limits(lo, hi);
