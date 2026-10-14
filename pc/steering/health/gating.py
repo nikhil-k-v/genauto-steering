@@ -163,6 +163,9 @@ ACTIONS: Dict[str, Tuple[str, List[Req]]] = {
     "can_scan":       ("CAN scan", [node("D1"), node("D5"), state_in(P.CS_REST, what="scan only in REST")]),
     "phone_capture":  ("Phone capture", [node("F3"), node("F4")]),
     "stop_stream":    ("Stop", [need(lambda c: c.streaming, "nothing streaming")]),
+    "external_stream":("External setpoint stream (planner / remote)", LINK_UP + MOTOR_UP + SAFE + [node("C1"), node("C2"), node("C3"),
+                        node("A6"), node("F5"), state_in(P.CS_HOLD, P.CS_TRAJ, what="motor must be enabled and holding/following"),
+                        need(lambda c: not c.streaming, "a local trajectory / playback is streaming")]),
 }
 
 

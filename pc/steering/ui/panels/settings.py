@@ -44,6 +44,8 @@ class SettingsPanel:
             self.tags["srv"] = dpg.add_checkbox(label="run hub", default_value=s.server_enabled, callback=safe(self._server))
             self.tags["port"] = dpg.add_input_int(label="port", default_value=s.server_port, width=100)
             self.tags["srv_status"] = dpg.add_text("", color=T.DIM)
+        dpg.add_checkbox(label="allow remote control (planner setpoint stream, enable/zero from clients)",
+                         default_value=s.allow_remote_control, callback=safe(self._pref("allow_remote_control")))
         dpg.add_text("On the phone (same Wi-Fi), open:", color=T.DIM)
         self.tags["url"] = dpg.add_text(f"http://{_lan_ip()}:{s.server_port}/")
         dpg.add_spacer(height=10)

@@ -1,7 +1,7 @@
 # Gen Auto — Steering Actuator
 
-Firmware + PC software for the Gen Auto steering robot: a Yobotics **BM-18** quasi-direct-drive
-actuator bolted to a car's steering wheel, driven by a **Teensy 4.1** over CAN, supervised from a
+Firmware + PC software for the Gen Auto steering robot: a Yobotics **BM-series** (BM-24 per the project
+page, see HARDWARE) quasi-direct-drive actuator clamped to a car's steering wheel, driven by a **Teensy 4.1** over CAN, supervised from a
 laptop running a **Python (Dear PyGui) desktop app**, with an optional Arduino joystick/RF bridge and
 an optional phone for synced video/IMU capture.
 
@@ -21,6 +21,7 @@ those nodes, every recording carries its own evidence, and the firmware owns saf
 | Tune the loop | **Tuning → Step test / Relay auto-tune** → proposed gains → Apply |
 | Know *why* something isn't working | Top-bar **A–F boxes** → **Health** tab (node, reason, what it blocks, fix) → `data/logs/` |
 | Capture phone video / IMU in sync with a recording | **Settings → run hub**, open the URL on the phone, arm camera |
+| Let the vehicle stack (ROS 2 / Orin) steer | hub `setpoint` stream → same gating as a trajectory (Settings → allow remote control) |
 
 ## Quick start
 

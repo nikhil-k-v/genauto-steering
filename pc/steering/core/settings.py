@@ -17,6 +17,7 @@ class Settings:
     auto_connect: bool = True
     server_enabled: bool = False
     server_port: int = 8765
+    allow_remote_control: bool = False   # planner setpoints / enable from the hub
     plot_seconds: float = 10.0
     auto_bounds: bool = True
     theme: str = "dark"

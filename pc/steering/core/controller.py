@@ -166,6 +166,20 @@ class Controller:
         self.link.send(P.setpoint(0, pos_deg))
         return r
 
+    def external_setpoint(self, pos_deg: float, vel_ff: float = 0.0) -> GateResult:
+        """Live setpoint from an external planner (ROS2/Orin via the hub) or a remote
+        device.  Same gating as a trajectory; the firmware falls back to HOLD if the
+        stream stops for 250 ms, so a dead planner never leaves a stale command."""
+        r = self.can("external_stream")
+        if not r.ok:
+            return r
+        if self.live.ctrl_state != P.CS_TRAJ:
+            self.link.send(P.mode_request(P.MODE_TRAJ, sticky=True))
+        self._ext_seq = (getattr(self, "_ext_seq", 0) + 1) & 0xFFFF
+        self.bus.publish("stream_target", pos_deg)
+        self.link.send(P.setpoint(self._ext_seq, pos_deg, vel_ff, int(time.monotonic() * 1000)))
+        return r
+
     def joystick_mode(self, on: bool):
         self._gate("joystick")
         self.link.send(P.mode_request(P.MODE_JOY if on else P.MODE_HOLD, sticky=True))

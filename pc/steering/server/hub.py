@@ -15,7 +15,13 @@ Design (docs/ARCHITECTURE.md#hub):
     their camera; when it stops, the phone uploads the clip, which lands in
     the recording folder as video.webm + capture.json; IMU samples stream
     live into imu.csv.
-  * Future devices (throttle robot, other Teensys) register as `DeviceClient`
+  * Planner input: with `allow_remote_control`, a client may stream
+    {"type":"setpoint","pos_deg":..,"vel_ff":..} at up to 200 Hz — this is the
+    intended path for the ROS2 stack on the AGX Orin (desired steering angle
+    from the motion planner).  It goes through Controller.external_setpoint,
+    i.e. the same gating as a local trajectory, and the firmware's 250 ms
+    stream watchdog drops to HOLD if the planner dies.
+  * Future devices (throttle robot, other Teensys) register as `Device`
     objects — see steering/devices/base.py.
 
 Control from remote clients is limited to the `REMOTE_ACTIONS` allow-list
@@ -155,6 +161,14 @@ class Hub:
                             for s in msg.get("samples", []):
                                 t_rel = (s[0] - rec.created_at * 1000) / 1000.0
                                 imu_fh.write(f"{t_rel:.4f}," + ",".join(f"{v:.4f}" for v in s[1:7]) + "\n")
+                    elif t == "setpoint":
+                        # live planner stream (gated; needs allow_remote_control)
+                        if hub.allow_remote_control:
+                            r = hub.app.controller.external_setpoint(float(msg.get("pos_deg", 0.0)), float(msg.get("vel_ff", 0.0)))
+                            if not r.ok and msg.get("ack"):
+                                await sock.send_text(json.dumps({"type": "setpoint_refused", "reasons": r.reasons}))
+                        elif msg.get("ack"):
+                            await sock.send_text(json.dumps({"type": "setpoint_refused", "reasons": ["remote control not enabled"]}))
                     elif t == "cmd":
                         await sock.send_text(json.dumps({"type": "cmd_result", **hub._remote_cmd(msg)}))
             except WebSocketDisconnect:

@@ -1,7 +1,10 @@
 # Gen Auto steering robot — project brief (v2 software)
 
-**What it is.** A Yobotics BM-18 quasi-direct-drive actuator fastened to a car's steering wheel and the
-floor, driven by a Teensy 4.1 over CAN, supervised by a laptop Python (Dear PyGui) app. Purpose: execute
+**What it is.** A Yobotics BM-series QDD actuator (BM-24 per nkve.dev/pages/genauto: 8/24 N·m; earlier notes
+said BM-18 — `MOTOR_MODEL` in config.h) on a universal clamp-on wheel coupling with a floor-constrained
+reaction arm, driven by a Teensy 4.1 ("CCM": OLED + take-control/E-stop/power buttons) over CAN,
+supervised by a laptop Python (Dear PyGui) app. Vehicle stack: ROS 2 on an NVIDIA AGX Orin (LiDAR,
+cameras, GNSS/INS); first maneuver target J-turns, then drifting. Purpose: execute
 aggressive / drift steering trajectories from research motion planners, repeatably and safely, and record
 evidence of every run. A throttle robot and sensors will join later.
 
@@ -29,7 +32,10 @@ Playbacks are children `<name>_pbNN` of the recording they replay.
 **Calibration.** Firmware auto end-stop routine: velocity-regulated torque creep (≤ 3.5 Nm), stop
 confirmed by a bump vs friction, both sides, slew to centre, zero with a software offset so centre = 0°.
 
-**Open items (verify on hardware).** Torque field range: datasheet says ±18 Nm, old code used ±6 —
+**Planner path.** Hub `setpoint` stream → `Controller.external_setpoint` (gated like a trajectory; firmware
+HOLD fallback after 250 ms). ROS 2 bridge node is the next step.
+
+**Open items (verify on hardware).** Motor model (BM-18 vs BM-24). Torque field range: datasheet says ±18 Nm, old code used ±6 —
 `MOTOR_T_*` in config.h; test with Tff = 1 Nm. PlatformIO build not yet run on this code (host
 type-check passes). Tune `CAL_*` on the real column.
 

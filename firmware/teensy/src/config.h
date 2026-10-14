@@ -24,6 +24,30 @@
 // CAN3: CRX3 = pin 30, CTX3 = pin 31  (transceiver STBY tied low)
 
 // ---- motor / CAN -------------------------------------------------------------
+// Which BM-series unit is fitted.  nkve.dev/pages/genauto quotes 8 Nm continuous /
+// 24 Nm peak (= BM-24); earlier notes said BM-18.  The preset only sets sanity
+// limits and documentation numbers — the CAN field ranges below are the same for
+// all three per the datasheet and MUST be verified on hardware (docs/MIGRATION.md).
+#define MOTOR_MODEL_BM18 18
+#define MOTOR_MODEL_BM24 24
+#define MOTOR_MODEL_BM48 48
+#ifndef MOTOR_MODEL
+#define MOTOR_MODEL MOTOR_MODEL_BM24
+#endif
+#if MOTOR_MODEL == MOTOR_MODEL_BM18
+#define MOTOR_RATED_TORQUE_NM   6.0f
+#define MOTOR_PEAK_TORQUE_NM   18.0f
+#define MOTOR_PEAK_RPM        300
+#elif MOTOR_MODEL == MOTOR_MODEL_BM24
+#define MOTOR_RATED_TORQUE_NM   8.0f
+#define MOTOR_PEAK_TORQUE_NM   24.0f
+#define MOTOR_PEAK_RPM        300
+#else
+#define MOTOR_RATED_TORQUE_NM  16.0f
+#define MOTOR_PEAK_TORQUE_NM   48.0f
+#define MOTOR_PEAK_RPM        240
+#endif
+
 #define MOTOR_CAN_ID_DEFAULT  0x02
 #define CAN_BITRATE           1000000
 #define CAN_REPLY_TIMEOUT_MS  200    // no reply for this long while enabled -> TRIP_CAN_LOST
@@ -41,7 +65,7 @@
 #define MOTOR_KP_MAX        500.0f
 #define MOTOR_KD_MIN          0.0f
 #define MOTOR_KD_MAX        100.0f
-#define MOTOR_T_MIN_NM      (-18.0f)           // datasheet: -18 .. 18 Nm (NOT +-6 as before)
+#define MOTOR_T_MIN_NM      (-18.0f)           // datasheet CAN table: -18 .. 18 Nm (old code used +-6; VERIFY)
 #define MOTOR_T_MAX_NM      ( 18.0f)
 
 // ---- loop rates --------------------------------------------------------------

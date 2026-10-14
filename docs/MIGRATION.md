@@ -40,6 +40,9 @@ A–F idea, and replaces everything else.
 
 ## Verify on hardware (first session with the new firmware)
 
+0. Confirm the unit: the project page says 8/24 N·m (BM-24), earlier notes said BM-18. Set
+   `MOTOR_MODEL` in `config.h` to match the label on the actuator.
+
 1. Flash Teensy (`teensy41`), connect, motor off: expect D green, A4 amber "motor never replied", B1
    per switch. Power the motor: A green, `can_rx_motor_hz` ≈ 0 in REST (BM-18 only answers commands).
 2. Enable (motor must be free to move): state HOLD, `can_rx_motor_hz` ≈ 1000, C1 ≈ 1000 Hz, 0 overruns.

@@ -18,10 +18,18 @@
   fans out per device at 200 Hz from one clock.
 * Hub exposes both devices to the phone page.
 
-## Planner integration
+## Planner integration (ROS 2 on the AGX Orin)
 
-* `Trajectory` import from research planners (CSV / rosbag / JSON with `t, steer_deg[, steer_rate]`),
-  with limit clipping and the existing blend-in.
+* Live path exists: hub `setpoint` stream → `Controller.external_setpoint` (gated). Next: a ROS 2 node
+  (`genauto_steering_bridge`) subscribing to the planner's steering-angle topic and publishing
+  telemetry/health, running on the laptop (or on the Orin, owning the Teensy link directly through
+  `steering.link` — the package has no UI dependency).
+* `Trajectory` import from planners / logs (CSV, rosbag, JSON with `t, steer_deg[, steer_rate]`),
+  with limit clipping and the existing blend-in. First target: the J-turn maneuver from
+  "Instructed Reinforcement Learning Control of Safe Autonomous J-Turn Vehicle Maneuvers" (AIM 2021).
+* **IMU on the actuator** (BNO08x was stubbed in MotorControlWebGUI): absolute wheel angle independent
+  of the encoder for the angle loop on the project page; log it as an extra column and use it to
+  detect coupling slip (encoder vs IMU disagreement → new health node).
 * Replay of a logged vehicle run with video overlay (phone video already time-aligned).
 
 ## UX

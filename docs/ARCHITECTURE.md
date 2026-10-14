@@ -6,6 +6,11 @@
 
 **Goal.** Drive a real steering wheel through aggressive / drift trajectories that come from research
 motion planners — repeatably, safely, and with evidence of what actually happened on every run.
+Context from the project page (nkve.dev/pages/genauto): a universal, non-destructive steering robot
+(attaches to any wheel by hand in ~1 min, <$500 in parts), first maneuver target **J-turns for
+collision avoidance**, then autonomous drifting; perception (LiDAR, cameras, GNSS/INS) and planning run
+in ROS 2 on an NVIDIA AGX Orin; the robot's **zero-torque mode** lets a human drive with it attached and
+record maneuvers for playback; a safety driver can take over at any time.
 
 **Problems this system has to solve**
 
@@ -70,13 +75,23 @@ Firmware state machine (`run_calibration` in `control.cpp`), parameters `CAL_*` 
 
 Manual fallback: capture L / capture R (in free-spin) → go-centre-zero; or type limits.
 
-## 6. Device hub and other devices
+## 6. Planner interface (ROS 2 / AGX Orin)
+
+The vehicle stack outputs a desired steering angle; the robot closes the angle loop. Today the laptop
+is the bridge: the Orin (or any planner process) connects to the hub and streams
+`{"type":"setpoint","pos_deg":…,"vel_ff":…}` at up to 200 Hz (`Controller.external_setpoint`). It is
+gated exactly like a local trajectory (`external_stream` action: link, motor, safety, zeroed + limits,
+HOLD/TRAJ), requires *allow remote control* in Settings, and the firmware's 250 ms stream watchdog
+falls back to HOLD if the planner stops. Recording works unchanged (`target_deg` is logged). A native
+ROS 2 node that wraps the same `Link`/`Controller` is the next step (ROADMAP).
+
+## 7. Device hub and other devices
 
 The hub (`server/hub.py`) is optional and sits *beside* the UI, never between the UI and the Teensy. It subscribes to the same bus and calls the same controller, so a remote action is gated identically. Phones get a JSON stream (telemetry 20 Hz, health 2 Hz, events, recording state), NTP-style ping/pong time sync, and upload video + IMU into the active recording's folder. Remote control is limited to a safe allow-list unless enabled.
 
 Future devices (throttle robot, a second steering unit) implement `devices/base.py::Device` — health nodes with a group letter of their own, timestamped samples the recorder writes next to `data.csv`, and gated actions. See `docs/ROADMAP.md`.
 
-## 7. Failure handling, in one place
+## 8. Failure handling, in one place
 
 | What dies | Who notices | What happens |
 |---|---|---|

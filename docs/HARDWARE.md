@@ -5,6 +5,26 @@ Hardware is **identical to the previous build**. Pins are the single source of t
 
 ![electrical](diagrams/08_electrical.svg)
 
+## Naming (matches nkve.dev/pages/genauto)
+
+* **Actuator** — the BM-series QDD motor on the wheel coupling (toggle clamps, geared lower arms,
+  prismatic axis-offset joint; CF-nylon). The motor sits on the wheel's rotation axis.
+* **Reaction torque mechanism** — floor-constrained arm (no fastening). Pendulum / reaction-wheel
+  concepts are design options only.
+* **CCM** (controls & communication module) — the Teensy 4.1 enclosure with the 2.42" OLED and the
+  controls: *take control* (= the idle switch on pin 22), *emergency stop* (cuts motor power — not
+  seen by the firmware except as A4 "replies lost"), *power cycle*. Carries the battery.
+* **Actuation module** (block diagram on the site): battery · motor · MCU (Teensy) · reaction torque
+  mechanism · IMU (optional, not fitted in this build — see ROADMAP) · wireless transceiver (NRF24).
+
+## Which motor?
+
+The site quotes **8 N·m continuous / 24 N·m peak** (= **BM-24**), earlier notes said BM-18. The
+firmware preset `MOTOR_MODEL` in `config.h` (default `MOTOR_MODEL_BM24`) only sets sanity limits and
+documentation numbers; the CAN field ranges are the same for all three units in the datasheet and
+must be verified on hardware (MIGRATION.md). Steering requirement from the site: 1–5 N·m continuous,
+15 N·m peak, 13–15 rad/s.
+
 ## Power
 
 | Rail | Source | Loads | Notes |
@@ -44,11 +64,11 @@ There is no bus-voltage sense on the Teensy, so "motor powered" is inferred from
 | A2 / A1 / D3 | joystick X / Y / button (pull-up) |
 | USB | optional: BridgeStatus to the PC; in `uno_bridge` env also forwards PC↔Teensy frames |
 
-## BM-18 facts used by the firmware (from the datasheet, 优宝特 BM-18)
+## BM-series facts used by the firmware (datasheet 优宝特 BM-18 / BM-24 / BM-48)
 
 | Item | Value | Where used |
 |---|---|---|
-| Rated / peak torque | 6 Nm / 18 Nm | `MOTOR_T_MIN/MAX_NM = ±18` (**was ±6 in the old code — see MIGRATION**) |
+| Rated / peak torque | BM-18 6/18 Nm · BM-24 8/24 Nm · BM-48 16/48 Nm | `MOTOR_MODEL` preset; CAN torque field `MOTOR_T_MIN/MAX_NM = ±18` (**was ±6 in the old code — see MIGRATION**) |
 | Rated / peak speed | 200 / 300 rpm (gear 6:1) | `VELOCITY_CUTOFF_DEG_S` sits well below |
 | Rated / peak current | 15 A / 40 A; board protection 35 A/200 ms | `CURRENT_CUTOFF_A = 30` |
 | Command fields | p 16 b ±4π rad · v 12 b ±30 rad/s · kp 12 b 0–500 · kd 12 b 0–100 · τ 12 b ±18 Nm | `can_motor.cpp::pack_cmd` |

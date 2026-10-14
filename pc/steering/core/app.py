@@ -94,7 +94,7 @@ class App:
     def start_server(self):
         if self.server is None:
             from ..server.hub import Hub
-            self.server = Hub(self, port=self.settings.server_port)
+            self.server = Hub(self, port=self.settings.server_port, allow_remote_control=self.settings.allow_remote_control)
         self.server.start()
 
     def stop_server(self):
