@@ -1,0 +1,22 @@
+%%{init: {'theme':'dark','themeVariables':{'fontSize':'12px'}}}%%
+flowchart TB
+  ROOT["Can I move the motor the way I asked?"]
+  ROOT --> A & B & C & D & E & F
+  subgraph A["A · Motor & CAN (Teensy decides)"]
+    A1["A1 CAN controller\nbus-off / error counters"] --> A2["A2 CAN transmit\nmailbox / TEC"] --> A3["A3 bus activity\nany frame heard"] --> A4["A4 motor replies\nid 0x02 @ ~1 kHz"] --> A5["A5 data sane\nfinite · not frozen"] --> A6["A6 current\n< 70 % cutoff"]
+  end
+  subgraph B["B · Safety"]
+    B1["B1 idle switch\npin 22 closed = ARMED"] --> B2["B2 no trip latched\ntrip code + reason"]
+  end
+  subgraph C["C · Controller"]
+    C1["C1 loop timing\n1 kHz · overruns"] --> C2["C2 zeroed + limits"] --> C3["C3 calibration\nidle / running / failed"] --> C4["C4 OLED"]
+  end
+  subgraph D["D · PC link (PC decides)"]
+    D1["D1 port open"] --> D2["D2 bytes arriving"] --> D3["D3 frames decode\nCRC · drops"] --> D4["D4 telemetry fresh\n< 100 ms"] --> D5["D5 Teensy hears PC\nround trip"] --> D6["D6 fw health fresh"]
+  end
+  subgraph E["E · Bridge"]
+    E1["E1 RF (Teensy ← Arduino)"] --> E2["E2 bridge on USB"]
+  end
+  subgraph F["F · Data & services"]
+    F1["F1 recorder"] --> F2["F2 store / disk"] --> F3["F3 hub"] --> F4["F4 phone sync"] --> F5["F5 UI loop"]
+  end

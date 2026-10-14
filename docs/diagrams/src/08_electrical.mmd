@@ -1,0 +1,15 @@
+%%{init: {'theme':'dark','themeVariables':{'fontSize':'12px'}}}%%
+flowchart LR
+  PSU["24 V DC supply\n(BM-18: 15 A rated, 40 A peak)"] -- "XT30: − +" --> BM["BM-18 actuator\nintegrated FOC board\nCAN id 0x02"]
+  BM -- "CAN_H / CAN_L\n(JST, note notch)" --> XCVR["CAN transceiver\n(3.3 V, STBY→GND)"]
+  XCVR -- "CTX3 pin 31 / CRX3 pin 30" --> T["Teensy 4.1"]
+  TERM["120 Ω termination\nat both bus ends"] -.- XCVR
+  USB["Laptop USB\n(5 V + data)"] -- "USB-C/micro" --> T
+  T -- "I2C SDA 18 / SCL 19" --> OLED1["SSD1309 2.42in OLED\n0x3C"]
+  T -- "SPI CE 9 CSN 10\nMOSI 11 MISO 12 SCK 13" --> NRF1["NRF24L01+"]
+  SW["Idle switch SPST"] -- "pin 22 ↔ GND\n(INPUT_PULLUP, open = IDLE)" --> T
+  NRF1 <-. "2.4 GHz ch 108" .-> NRF2["NRF24L01+"]
+  NRF2 -- "CE 9 CSN 10 (HW SPI)" --> UNO["Arduino Uno"]
+  UNO -- "I2C A4/A5" --> OLED2["SSD1306 0.96in OLED 0x3C"]
+  JOY["Joystick\nX A2 · Y A1 · btn D3"] --> UNO
+  USB2["Laptop USB (optional)"] -.-> UNO

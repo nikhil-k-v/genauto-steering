@@ -1,0 +1,125 @@
+"""End-to-end against the simulator: connect, health, gating, enable, calibrate,
+record, play back, trips — the same path the UI takes."""
+import time
+
+import pytest
+
+from steering import protocol as P
+from steering.core.app import App
+from steering.core.controller import ActionRefused
+from steering.sim import SimFaults, SimTransport
+
+
+@pytest.fixture
+def app(tmp_path):
+    a = App(tmp_path / "data")
+    a.settings.auto_connect = False
+    yield a
+    a.shutdown()
+
+
+def wait(cond, timeout=5.0, what="condition"):
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        if cond():
+            return True
+        time.sleep(0.02)
+    raise AssertionError(f"timeout waiting for {what}")
+
+
+def connect(app, faults=None, realtime=4.0):
+    t = SimTransport(faults, realtime=realtime)
+    app.start(t)
+    wait(lambda: app.controller.live.telemetry is not None, what="telemetry")
+    wait(lambda: app.controller.live.tree.nodes["D5"].state == P.HS_OK, what="D5")
+    return t
+
+
+def test_link_health_comes_up(app):
+    connect(app)
+    tree = app.controller.live.tree
+    for nid in ("D1", "D2", "D3", "D4", "D5", "D6", "A4", "B1", "B2"):
+        assert tree.nodes[nid].state == P.HS_OK, (nid, tree.nodes[nid].reason)
+    assert tree.nodes["C2"].state == P.HS_BLOCKED          # not zeroed yet
+
+
+def test_gating_refuses_with_reasons(app):
+    connect(app, SimFaults(switch_armed=False))
+    wait(lambda: app.controller.live.tree.nodes["B1"].state == P.HS_BLOCKED, what="B1 blocked")
+    with pytest.raises(ActionRefused) as e:
+        app.controller.enable()
+    assert "B1" in e.value.result.nodes
+    r = app.controller.can("trajectory")
+    assert not r.ok and any("B1" in s for s in r.reasons)
+
+
+def test_enable_calibrate_record_playback(app):
+    t = connect(app)
+    app.controller.enable()
+    wait(lambda: app.controller.live.ctrl_state == P.CS_HOLD, what="HOLD")
+    with pytest.raises(ActionRefused):                       # not zeroed / no limits
+        app.controller.run_generator("sine", duration_s=1.0)
+    app.controller.calibrate()
+    wait(lambda: app.controller.live.health_fw and app.controller.live.health_fw.calib_stage == P.CAL_DONE,
+         timeout=40, what="calibration done")
+    wait(lambda: app.controller.live.tree.nodes["C2"].state == P.HS_OK, what="C2 ok")
+    cfg = app.controller.live.config
+    assert cfg.limits_valid and cfg.limit_left_deg < -30 and cfg.limit_right_deg > 30
+    assert abs(app.controller.live.position) < 3.0           # centred and zeroed
+    wait(lambda: not app.recorder.active, what="calibration recording stopped")
+
+    rec = app.controller.run_generator("sine", amplitude_deg=20, freq_hz=1.0, duration_s=1.0)
+    wait(lambda: not app.controller.streamer.active and not app.recorder.active, timeout=10, what="traj done")
+    rec = app.store.get(rec.uid)
+    assert rec.samples > 100 and "err_rms_deg" in rec.metrics and rec.kind == "trajectory"
+    assert rec.metrics["err_rms_deg"] < 8.0
+
+    app.controller.selected_recording = rec
+    pb = app.controller.play_recording(speed=2.0)
+    wait(lambda: not app.controller.streamer.active and not app.recorder.active, timeout=10, what="playback done")
+    pb = app.store.get(pb.uid)
+    assert pb.kind == "playback" and pb.parent_uid == rec.uid and pb.name == f"{rec.name}_pb01"
+    assert app.store.get(rec.uid).playback_count == 1
+    assert (pb.dir / "health.jsonl").exists() and (pb.dir / "events.jsonl").exists()
+
+    app.controller.run_test(P.TEST_STEP, 15.0, 0.5, 0.5)
+    wait(lambda: not app.recorder.active, timeout=10, what="step test done")
+    tests = app.store.list(kind="test_step")
+    assert tests and "step_overshoot_pct" in tests[0].metrics
+
+
+def test_trip_latches_and_blocks(app):
+    t = connect(app)
+    app.controller.enable()
+    wait(lambda: app.controller.live.ctrl_state == P.CS_HOLD, what="HOLD")
+    t.sim.f.switch_armed = False
+    wait(lambda: app.controller.live.ctrl_state == P.CS_TRIPPED, what="trip")
+    wait(lambda: app.controller.live.tree.nodes["B2"].state == P.HS_FAIL, what="B2 fail")
+    assert app.controller.live.health_fw.trip_code == P.TRIP_SWITCH_OPENED
+    with pytest.raises(ActionRefused):
+        app.controller.enable()
+    t.sim.f.switch_armed = True
+    wait(lambda: app.controller.live.tree.nodes["B1"].state == P.HS_OK, what="B1 ok")
+    app.controller.clear_trip()
+    wait(lambda: app.controller.live.ctrl_state == P.CS_REST, what="REST")
+    wait(lambda: app.controller.live.tree.nodes["B2"].state == P.HS_OK, what="B2 ok")
+    app.controller.enable()
+    wait(lambda: app.controller.live.ctrl_state == P.CS_HOLD, what="HOLD again")
+
+
+def test_firmware_rejection_is_surfaced(app):
+    t = connect(app)
+    # bypass PC gating to prove the firmware refuses with a reason
+    app.link.send(P.test_start(P.TEST_STEP, 10, 1, 1))
+    wait(lambda: "refused" in app.controller.live.last_rejection, what="rejection event")
+    assert "HOLD" in app.controller.live.last_rejection
+
+
+def test_store_reindex(app):
+    connect(app)
+    r = app.controller.record_start("manual-1")
+    time.sleep(0.3)
+    app.controller.record_stop()
+    assert app.store.get(r.uid).samples > 0
+    n = app.store.reindex()
+    assert n == 1 and app.store.get(r.uid).name == "manual-1"

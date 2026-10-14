@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pio/
+.vscode/
+data/
+!data/.gitkeep
+pc/*.egg-info/
+*.sqlite
+*.sqlite-journal
+.DS_Store

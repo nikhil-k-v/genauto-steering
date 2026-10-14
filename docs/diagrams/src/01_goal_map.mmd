@@ -1,0 +1,35 @@
+%%{init: {'theme':'dark','themeVariables':{'fontSize':'14px'}}}%%
+flowchart LR
+  subgraph GOAL["GOAL"]
+    G["Drive a real steering wheel through aggressive /\ndrift trajectories from research motion planners —\nrepeatably, safely, with evidence of what happened"]
+  end
+  subgraph PROBLEMS["PROBLEMS"]
+    P1["High-friction column,\nhard end stops"]
+    P2["Several computers + links\ncan each fail silently"]
+    P3["Trajectories must be\ncaptured, replayed, compared"]
+    P4["A crash or lost link must\nnever leave torque applied"]
+  end
+  subgraph SOLUTIONS["SOLUTIONS (how)"]
+    S1["Cascaded control: motor FOC 20 kHz ⊃\nTeensy PD+I 1 kHz ⊃ PC setpoints 200 Hz"]
+    S2["Health tree A–F: every link and\nsubsystem has a node with a reason"]
+    S3["Recordings with lineage: motion → playbacks,\nmetrics + health + events stored together"]
+    S4["Firmware-owned safety: trips, slew & gain\nramps, heartbeat/switch gating, REST on loss"]
+    S5["Auto end-stop calibration +\nsoftware zero at exact centre"]
+  end
+  subgraph TASKS["TASKS (what you do)"]
+    T1["Calibrate → Enable → Free-spin\n→ record hand motion"]
+    T2["Play back / run generator\n→ compare metrics"]
+    T3["Tune: step / relay →\nproposed gains"]
+    T4["Debug: read A–F, open Health,\nread logs / recording events"]
+    T5["Capture phone video + IMU\nsynced to a recording"]
+  end
+  G --> P1 & P2 & P3 & P4
+  P1 --> S1 & S5
+  P2 --> S2
+  P3 --> S3
+  P4 --> S4
+  S5 --> T1
+  S1 --> T2 & T3
+  S2 --> T4
+  S3 --> T2 & T5
+  S4 --> T1

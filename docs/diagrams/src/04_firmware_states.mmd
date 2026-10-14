@@ -1,0 +1,32 @@
+%%{init: {'theme':'dark','themeVariables':{'fontSize':'13px'}}}%%
+stateDiagram-v2
+  [*] --> REST
+  REST --> HOLD: ENABLE (switch armed · CAN alive · no trip)
+  REST --> FREESPIN: FREESPIN_ON
+  REST --> CALIB: CALIB_START / GO_CENTER_ZERO
+  HOLD --> TRAJ: setpoint stream fresh (mode AUTO/TRAJ)
+  TRAJ --> HOLD: stream stops 250 ms / HOLD_HERE
+  HOLD --> JOY: joystick fresh (mode AUTO/JOY)
+  JOY --> HOLD: joystick stale
+  HOLD --> TEST: TEST_START (zeroed)
+  TEST --> HOLD: test done / PC lost
+  HOLD --> FREESPIN: FREESPIN_ON
+  FREESPIN --> HOLD: FREESPIN_OFF (re-grip, gain ramp)
+  HOLD --> CALIB: CALIB_START
+  FREESPIN --> CALIB: CALIB_START
+  CALIB --> HOLD: CAL_DONE (zero at centre, limits valid)
+  CALIB --> REST: CALIB_ABORT / DISABLE
+  HOLD --> REST: DISABLE
+  TRAJ --> REST: DISABLE
+  JOY --> REST: DISABLE
+  FREESPIN --> REST: DISABLE
+  state TRIPPED {
+    [*] --> latched
+  }
+  HOLD --> TRIPPED: trip
+  TRAJ --> TRIPPED: trip / PC lost
+  JOY --> TRIPPED: trip
+  TEST --> TRIPPED: trip
+  FREESPIN --> TRIPPED: switch opened / CAN lost
+  CALIB --> TRIPPED: CAL failed / trip
+  TRIPPED --> REST: CLEAR_TRIP

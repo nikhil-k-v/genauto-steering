@@ -1,0 +1,18 @@
+%%{init: {'theme':'dark','themeVariables':{'fontSize':'13px'}}}%%
+flowchart LR
+  FS["Free-spin + Record\n(hand motion)"] --> R0["recording  hand-motion\nkind=freespin"]
+  R0 -- "Play back x1" --> P1["hand-motion_pb01\nkind=playback · parent=hand-motion"]
+  R0 -- "Play back x0.5" --> P2["hand-motion_pb02"]
+  P1 -. "metrics: err_rms, tracking_score,\nhealth summary, events" .-> P1
+  GEN["Generator sine"] --> R1["sine · kind=trajectory"]
+  TS["Step test"] --> R2["step · kind=test_step\nrise / overshoot / settle"]
+  CAL["Auto-calibrate"] --> R3["autocal · kind=calibration"]
+  subgraph FOLDER["recordings/<collection>/<date>/<HHMMSS>_<kind>_<name>/"]
+    F1["data.csv"]
+    F2["meta.json"]
+    F3["health.jsonl"]
+    F4["events.jsonl"]
+    F5["video.webm + capture.json\nimu.csv (phone)"]
+  end
+  P1 --> FOLDER
+  CAT[("catalog.sqlite\nindex · pinned · tags · playback_count")] --- FOLDER

@@ -1,0 +1,26 @@
+%%{init: {'theme':'dark','themeVariables':{'fontSize':'13px'}}}%%
+flowchart LR
+  subgraph PC["PC · 200 Hz"]
+    SRC["setpoint source\ngenerator | recording | slider | joystick rate"]
+    CLIP["clip to limits\n+ 0.6 s cosine blend-in"]
+    SRC --> CLIP
+  end
+  subgraph TEENSY["Teensy · 1 kHz ISR"]
+    MODE["mode resolve\nHOLD / TRAJ / JOY / TEST / FREE / CALIB"]
+    SLEW["slew limit\n2300 deg/s"]
+    RAMP["gain ramp\n5 % → 100 % in 0.8 s"]
+    INT["integral + leak\n(friction) clamp ±4 Nm"]
+    SAFE["trips: overspeed · stall · overcurrent\nswitch · CAN lost · PC lost · limit"]
+    PACK["MIT pack\np v kp kd τ"]
+    MODE --> SLEW --> RAMP --> INT --> PACK
+    SAFE -. "REST (0xFD)" .-> PACK
+  end
+  subgraph MOTOR["BM-18 · 20 kHz"]
+    LAW["τ = kp(p* − p) + kd(v* − v) + τff"]
+    REPLY["reply: id p v i"]
+    LAW --> REPLY
+  end
+  CLIP -- "SetpointPacket" --> MODE
+  PACK -- "CAN cmd" --> LAW
+  REPLY -- "CAN reply" --> SAFE
+  REPLY -- "telemetry 200 Hz" --> SRC
