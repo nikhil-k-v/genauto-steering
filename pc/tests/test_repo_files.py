@@ -44,3 +44,12 @@ def test_example_sim_data_opens(tmp_path):
     assert hand.pinned and len(st.playbacks_of(hand.uid)) == 2
     for r in recs:
         assert r.csv.exists() and r.samples > 0
+
+
+def test_every_package_has_init():
+    """Without steering/__init__.py a normal `pip install .` packages nothing (setuptools find_packages)."""
+    for d in [PC / "steering", *[p for p in (PC / "steering").rglob("*") if p.is_dir()]]:
+        if "__pycache__" in d.parts or "fonts" in d.parts:
+            continue
+        if any(f.suffix == ".py" for f in d.iterdir()):
+            assert (d / "__init__.py").exists(), f"{d} has modules but no __init__.py"
