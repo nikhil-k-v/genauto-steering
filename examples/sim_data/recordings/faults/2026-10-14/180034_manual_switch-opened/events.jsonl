@@ -1,0 +1,5 @@
+{"t": 0.0009380109999597153, "src": "pc", "action": "record_start", "kind": "manual", "name": "switch-opened", "parent": null}
+{"t": 3.6047332729999653, "src": "fw", "code": "state", "arg": 6, "text": "", "t_fw_ms": 96103}
+{"t": 3.6047717449999936, "src": "fw", "code": "trip", "arg": 4, "text": "switch opened", "t_fw_ms": 96103}
+{"t": 5.121747288999984, "src": "pc", "action": "stop_record", "allowed": true, "reasons": []}
+{"t": 5.1217801779999945, "src": "pc", "action": "record_stop"}

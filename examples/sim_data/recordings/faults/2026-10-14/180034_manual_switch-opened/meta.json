@@ -1,0 +1,49 @@
+{
+  "uid": "ea3c9f6fd344",
+  "name": "switch-opened",
+  "kind": "manual",
+  "collection": "faults",
+  "path": "recordings/faults/2026-10-14/180034_manual_switch-opened",
+  "created_at": 1792000834.023854,
+  "parent_uid": null,
+  "duration_s": 5.1219826869999565,
+  "samples": 1024,
+  "pinned": false,
+  "tags": [
+    "demo",
+    "fault"
+  ],
+  "notes": "slider moves while holding, then the idle switch opens: the trip, the health change and the events are all in this folder",
+  "metrics": {
+    "samples": 1024,
+    "duration_s": 5.1165,
+    "sample_rate_hz": 227.27272727272793,
+    "max_gap_ms": 7.70000000000004,
+    "err_rms_deg": 12.968708670929594,
+    "err_max_abs_deg": 30.452,
+    "err_mean_deg": -0.35952666666666694,
+    "err_p95_abs_deg": 26.333939999999995,
+    "vel_max_abs_deg_s": 126.0282,
+    "current_max_abs_A": 15.0,
+    "current_rms_A": 8.114145789918297,
+    "pos_min_deg": -37.9762,
+    "pos_max_deg": 37.1846,
+    "pos_range_deg": 75.1608,
+    "tracking_score_pct": 0.0
+  },
+  "health_summary": "S2=FAIL (Idle switch opened); S1=BLOCKED (IDLE (switch open))",
+  "health_worst": "S2",
+  "gains": {
+    "kp": 60.0,
+    "kd": 2.5,
+    "ki": 0.20000000298023224,
+    "tff_Nm": 0.0,
+    "limit_left_deg": -220.34585571289062,
+    "limit_right_deg": 220.34585571289062,
+    "limit_valid": true
+  },
+  "has_video": false,
+  "playback_count": 0,
+  "created_str": "2026-10-14 18:00:34",
+  "schema": 2
+}

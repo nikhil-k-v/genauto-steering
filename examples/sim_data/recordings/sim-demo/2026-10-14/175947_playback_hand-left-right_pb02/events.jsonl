@@ -1,0 +1,3 @@
+{"t": 0.001380509999989954, "src": "pc", "action": "record_start", "kind": "playback", "name": "hand-left-right_pb02", "parent": "84cac9da5544"}
+{"t": 0.003264729999955307, "src": "fw", "code": "state", "arg": 2, "text": "", "t_fw_ms": 45726}
+{"t": 16.211007660000007, "src": "pc", "action": "record_stop"}

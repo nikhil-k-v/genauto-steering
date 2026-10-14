@@ -1,0 +1,44 @@
+{
+  "uid": "84cac9da5544",
+  "name": "hand-left-right",
+  "kind": "freespin",
+  "collection": "sim-demo",
+  "path": "recordings/sim-demo/2026-10-14/175929_freespin_hand-left-right",
+  "created_at": 1792000769.5322077,
+  "parent_uid": null,
+  "duration_s": 7.809257394999975,
+  "samples": 1562,
+  "pinned": true,
+  "tags": [
+    "demo",
+    "hand"
+  ],
+  "notes": "simulated hand: left, right, left",
+  "metrics": {
+    "samples": 1562,
+    "duration_s": 7.8037,
+    "sample_rate_hz": 227.27272727270642,
+    "max_gap_ms": 13.9999999999999,
+    "vel_max_abs_deg_s": 39.0092,
+    "current_max_abs_A": 0.0,
+    "current_rms_A": 0.0,
+    "pos_min_deg": -29.1586,
+    "pos_max_deg": 18.7688,
+    "pos_range_deg": 47.9274
+  },
+  "health_summary": "all OK",
+  "health_worst": "",
+  "gains": {
+    "kp": 30.0,
+    "kd": 2.0,
+    "ki": 0.0,
+    "tff_Nm": 0.0,
+    "limit_left_deg": -220.34585571289062,
+    "limit_right_deg": 220.34585571289062,
+    "limit_valid": true
+  },
+  "has_video": false,
+  "playback_count": 0,
+  "created_str": "2026-10-14 17:59:29",
+  "schema": 2
+}

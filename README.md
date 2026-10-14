@@ -31,6 +31,7 @@ cd firmware/teensy && pio run -t upload
 cd pc && pip install -e ".[server,dev]"
 python -m steering ui                 # auto-connects to the Teensy
 python -m steering ui --sim           # no hardware: whole app against the built-in simulator
+python -m steering ui --sim --data ../examples/sim_data   # same, with example recordings to browse
 python -m pytest                      # end-to-end tests on the simulator
 ```
 
@@ -61,6 +62,7 @@ pc/steering/         protocol.py (mirror, tested against the header) · link · 
 web/index.html       browser UI served by the hub (system, recordings, docs)
 phone/index.html     phone capture page (camera, IMU, time sync)
 docs/                guides + docs/diagrams/gen.py (generates every SVG) + screenshots
+examples/sim_data/   example recordings made with the simulator (pc/tools/make_sim_data.py)
 scripts/             check_firmware.sh (host g++ type-check); pc/tools/ui_smoke.py (headless UI session)
 ```
 

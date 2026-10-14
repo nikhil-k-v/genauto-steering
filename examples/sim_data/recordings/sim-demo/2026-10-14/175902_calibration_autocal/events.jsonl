@@ -1,0 +1,11 @@
+{"t": 0.0012084009999853151, "src": "pc", "action": "record_start", "kind": "calibration", "name": "autocal", "parent": null}
+{"t": 6.897670043000005, "src": "fw", "code": "calib", "arg": 2, "text": "", "t_fw_ms": 7543}
+{"t": 7.497529885999995, "src": "fw", "code": "calib", "arg": 3, "text": "", "t_fw_ms": 8143}
+{"t": 18.63564194999998, "src": "fw", "code": "calib", "arg": 4, "text": "", "t_fw_ms": 19281}
+{"t": 19.234823516000006, "src": "fw", "code": "calib", "arg": 5, "text": "", "t_fw_ms": 19881}
+{"t": 24.745678656999985, "src": "fw", "code": "calib", "arg": 6, "text": "", "t_fw_ms": 25391}
+{"t": 26.830535510999994, "src": "fw", "code": "limits_set", "arg": 0, "text": "", "t_fw_ms": 27476}
+{"t": 26.830570702999978, "src": "fw", "code": "zero_set", "arg": 0, "text": "", "t_fw_ms": 27476}
+{"t": 26.830581741000003, "src": "fw", "code": "calib", "arg": 7, "text": "", "t_fw_ms": 27476}
+{"t": 26.830590479000023, "src": "fw", "code": "state", "arg": 1, "text": "", "t_fw_ms": 27476}
+{"t": 26.89084987199999, "src": "pc", "action": "record_stop"}

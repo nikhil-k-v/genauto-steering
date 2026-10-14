@@ -28,6 +28,7 @@ class SimFaults:
     frozen_encoder: bool = False    # M5
     heartbeat_deaf: bool = False    # Teensy ignores PC heartbeats (C5)
     isr_overruns: int = 0
+    hand_Nm: float = 0.0            # torque a hand puts on the wheel (free-spin recordings, disturbances)
 
 
 @dataclass
@@ -42,6 +43,7 @@ class SimMotor:
     stop_right: float = 230.0
     stop_k: float = 8.0             # Nm/deg spring at the stop
     stop_c: float = 0.3             # Nm per deg/s damping in the stop (rubber bump)
+    ext_Nm: float = 0.0             # external torque (a hand on the wheel)
 
     def step(self, dt: float, p_cmd_deg: float, v_cmd: float, kp: float, kd: float, t_ff: float):
         # MIT-style: torque = kp*(p_cmd - p) + kd*(v_cmd - v) + t_ff, gains in Nm/rad
@@ -49,6 +51,8 @@ class SimMotor:
         verr_rad = math.radians(v_cmd - self.vel)
         tau = kp * err_rad + kd * verr_rad + t_ff
         tau = max(-18.0, min(18.0, tau))
+        motor_tau = tau
+        tau += self.ext_Nm
         if self.pos < self.stop_left:
             tau += self.stop_k * (self.stop_left - self.pos) - self.stop_c * self.vel
         if self.pos > self.stop_right:
@@ -62,7 +66,7 @@ class SimMotor:
         acc = math.degrees(tau_net / self.inertia) * 0.01      # scaled to feel like a steering wheel
         self.vel += acc * dt
         self.pos += self.vel * dt
-        self.cur = tau / 1.2                                   # ~1.2 Nm/A
+        self.cur = motor_tau / 1.2                             # ~1.2 Nm/A, motor's own torque only
 
 
 class SimTeensy:
@@ -229,6 +233,7 @@ class SimTeensy:
     # ---- the tick (1 kHz equivalent, run at 1 kHz by the transport thread) ------------------------
     def tick(self, dt):
         self.t += dt
+        self.m.ext_Nm = self.f.hand_Nm
         pos, vel = self.rep_pos(), self.m.vel
         # safety
         if self.enabled:

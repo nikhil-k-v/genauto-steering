@@ -1,0 +1,5 @@
+{"t": 0.001176061999956346, "src": "pc", "action": "record_start", "kind": "test_step", "name": "step", "parent": null}
+{"t": 0.0026243499999623054, "src": "fw", "code": "state", "arg": 3, "text": "", "t_fw_ms": 62418}
+{"t": 5.001382449999994, "src": "fw", "code": "test_done", "arg": 1, "text": "", "t_fw_ms": 67418}
+{"t": 5.001423766999949, "src": "fw", "code": "state", "arg": 1, "text": "", "t_fw_ms": 67418}
+{"t": 5.070563184999969, "src": "pc", "action": "record_stop"}

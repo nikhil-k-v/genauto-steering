@@ -1,0 +1,3 @@
+{"t": 0.0008383190000245122, "src": "pc", "action": "record_start", "kind": "trajectory", "name": "chirp", "parent": null}
+{"t": 0.002210880999996334, "src": "fw", "code": "state", "arg": 2, "text": "", "t_fw_ms": 81465}
+{"t": 10.600876292999999, "src": "pc", "action": "record_stop"}

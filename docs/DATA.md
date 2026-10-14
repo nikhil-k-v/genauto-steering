@@ -23,6 +23,9 @@ data/
           imu.csv                     phone IMU samples, t_rel_s relative to the recording (optional)
 ```
 
+Example folder: `examples/sim_data` (see `examples/README.md`): every kind of recording, a playback
+lineage and a fault, made with the simulator.
+
 Pick the collection under **Record** on the Drive page (**New collection** creates one). The date folder is automatic.
 
 ## Kinds and naming

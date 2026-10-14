@@ -2,8 +2,8 @@ __pycache__/
 *.pyc
 .pio/
 .vscode/
-data/
-!data/.gitkeep
+# the app's data folder at the repo root only (NOT pc/steering/data, which is source code)
+/data/
 pc/*.egg-info/
 *.sqlite
 *.sqlite-journal

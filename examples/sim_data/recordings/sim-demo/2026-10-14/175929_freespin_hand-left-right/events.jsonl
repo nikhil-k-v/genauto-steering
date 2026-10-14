@@ -1,0 +1,3 @@
+{"t": 0.0007961430000023029, "src": "pc", "action": "record_start", "kind": "freespin", "name": "hand-left-right", "parent": null}
+{"t": 7.809041050000019, "src": "pc", "action": "stop_record", "allowed": true, "reasons": []}
+{"t": 7.809075023999981, "src": "pc", "action": "record_stop"}

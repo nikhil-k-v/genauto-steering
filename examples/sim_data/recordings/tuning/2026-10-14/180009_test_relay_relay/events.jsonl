@@ -1,0 +1,5 @@
+{"t": 0.0008362300000044343, "src": "pc", "action": "record_start", "kind": "test_relay", "name": "relay", "parent": null}
+{"t": 0.002481018999958451, "src": "fw", "code": "state", "arg": 3, "text": "", "t_fw_ms": 67920}
+{"t": 6.000344088999952, "src": "fw", "code": "test_done", "arg": 2, "text": "", "t_fw_ms": 73920}
+{"t": 6.00037432299996, "src": "fw", "code": "state", "arg": 1, "text": "", "t_fw_ms": 73920}
+{"t": 6.079065168, "src": "pc", "action": "record_stop"}
