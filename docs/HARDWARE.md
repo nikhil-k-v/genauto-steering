@@ -38,7 +38,12 @@ There is no bus-voltage sense on the Teensy, so "motor powered" is inferred from
 ## CAN bus
 
 * BM-18 ↔ transceiver ↔ Teensy **CAN3** (`CRX3` pin 30, `CTX3` pin 31), 1 Mbps, standard 11-bit ids.
-* Motor id **0x02** (`MOTOR_CAN_ID_DEFAULT`); changeable at run time with `CMD_SET_MOTOR_ID` (REST only) and discoverable with the scanner (Settings → Scan bus).
+* Motor id **0x02** (`MOTOR_CAN_ID_DEFAULT`); changeable at run time with `CMD_SET_MOTOR_ID` (REST only) and discoverable with the scanner (Settings → Scan the CAN bus; ~0.3 s, run by the ISR).
+* The motor never talks on its own: it answers each frame sent to its id, in REST as well as in motor mode. So
+  the Teensy always sends something: the command at 1 kHz with the motor on, a zero-gain zero-torque poll at
+  `CAN_REST_POLL_HZ` (100 Hz) with it off, and exit-motor-mode once at boot. With the motor unpowered nobody
+  ACKs those frames, so the TX error counter climbs to error-passive (M1/M2 amber, "frames not acknowledged");
+  that clears by itself once the motor is powered.
 * 120 Ω termination at both physical ends. Error counters (TEC/REC) and fault confinement are read directly from the FlexCAN3 registers and surfaced as node **M1**.
 * The actuator's CAN connector is a keyed JST — note the notch orientation in the datasheet photo (CAN_L is the pin away from the notch, CAN_H next to it).
 * The datasheet's "debug port 1/2" (USB-ish serial at 921600 8N1, ST-LINK pads) is the motor's own CLI (`m c s e z p` commands) used for the motor's internal encoder calibration — not used by this firmware, but see OPERATIONS → "motor won't give sane data".

@@ -16,4 +16,5 @@ void comms_emit_telemetry();
 void comms_emit_health(const HealthSnapshot& s);
 void comms_emit_config();
 void comms_emit_events();                  // drain the control event ring
+void comms_poll_scan();                    // send the CanScanPacket when a scan finishes
 uint32_t comms_frames_rx();                // for debugging

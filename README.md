@@ -69,7 +69,7 @@ web/index.html       browser UI: served by the hub, and published to GitHub Page
 phone/index.html     phone capture page (camera, IMU, time sync)
 docs/                guides + docs/diagrams/gen.py (generates every SVG) + screenshots
 examples/sim_data/   example recordings made with the simulator (pc/tools/make_sim_data.py)
-scripts/             check_firmware.sh (host g++ type-check); pc/tools/ui_smoke.py (headless UI session)
+scripts/             check_firmware.sh (host g++ type-check + firmware-on-host CAN test); pc/tools/ui_smoke.py (headless UI session)
 ```
 
 ## Documentation
@@ -88,7 +88,7 @@ All of these are also served, with the diagrams, by the web hub under **Docs**.
 
 ## Status
 
-* Firmware: host type-check clean (`scripts/check_firmware.sh`); PlatformIO build/flash still to be run on
+* Firmware: host type-check and firmware-on-host CAN test clean (`scripts/check_firmware.sh`); PlatformIO build/flash still to be run on
   hardware — see MIGRATION "Verify on hardware".
 * PC: tests pass against the simulator; `pc/tools/ui_smoke.py` drives every tab headlessly and produced the
   screenshots above.

@@ -37,6 +37,19 @@ and the logo splash, and replaces everything else.
 * **PC-loss during a Teensy-run test** used to trip the motor after two missed 5 Hz heartbeats; now any PC packet counts as liveness, the window is 600 ms, and TEST ends gracefully (TRAJ still trips).
 * **Frame resync**: an `AB` seen while waiting for `CD` restarts the sync instead of dropping the frame (caught by `test_frame_roundtrip_and_stats`).
 * **XOR checksum** replaced by CRC-8 (same cost, catches burst errors); sequence numbers count drops.
+* **Silent in Motor off → could never turn on** (fixed Oct 2026). The BM motor only answers frames sent to its
+  id, but the v2 firmware sent nothing in REST, so the Teensy never heard it: 0 Hz, M3/M4 never OK, and both the
+  PC gate and the firmware refused Position control for "no motor CAN reply" — a deadlock (the old code
+  streamed frames constantly, which is why it "just worked"). Now the ISR polls the motor at
+  `CAN_REST_POLL_HZ` (100 Hz) with a zero-gain, zero-torque frame whenever the motor is off (ignored in REST,
+  limp if the motor was left in motor mode), and boot sends exit-motor-mode once. The simulator had hidden this
+  by treating the motor as alive without replies; it now models the bus (replies only to frames sent to the
+  motor's id) and `firmware/teensy/test/test_can_host.cpp` runs the real firmware against a simulated motor.
+* **Blocking CAN scan** stalled the Teensy main loop ~0.7 s (no telemetry or health, the rail went red) and
+  wrote CAN from the main loop. The ISR now pings one id per tick and the main loop only reports the result
+  (~0.3 s, nothing stalls); motor-on commands and id changes are refused while it runs.
+* **"Frozen encoder" in REST**: a still wheel legitimately repeats the same reply; the frozen check now only
+  runs while the motor is really being commanded.
 * **Protocol v3** (this revision) removes the joystick/bridge packets and the bridge health node; controller states and health node indices were renumbered — flash firmware and PC from the same commit.
 
 ## UI pass 2 (Oct 2026): words, colour blindness, plots, Wi-Fi
@@ -60,8 +73,11 @@ and the logo splash, and replaces everything else.
 0. Confirm the unit: the project page says 8/24 N·m (BM-24), earlier notes said BM-18. Set
    `MOTOR_MODEL` in `config.h` to match the label on the actuator.
 
-1. Flash the Teensy, connect, motor off: expect the USB row green, the Motor row `no reply` (amber), Safety
-   per switch. Power the motor: Motor green, `can_rx_motor_hz` ≈ 0 in REST (the motor only answers commands).
+1. Flash the Teensy, connect, motor unpowered: expect the USB row green, the Motor row `no reply` (amber,
+   "Motor has never replied on CAN (id 2)"), CAN amber "frames not acknowledged" (nobody ACKs the poll), Safety
+   per switch. Power the motor: CAN and Motor green, `can_rx_motor_hz` ≈ 100 in Motor off (the Teensy polls the
+   motor), the angle on the Drive page follows the wheel by hand. If Motor stays amber, Settings → Scan the CAN
+   bus finds the real id; press Use this id.
 2. Position control (motor must be free to move): state "Position control", `can_rx_motor_hz` ≈ 1000, T1 ≈ 1000 Hz, 0 overruns.
 3. **Torque scale check**: in Position control with Kp=Kd=0, set Tff = 1.0 Nm and Send gains: the wheel should push
    with ~1 Nm (gently). If it pushes ~3× harder, your motor uses ±6 Nm — set `MOTOR_T_MIN/MAX_NM` to ±6.

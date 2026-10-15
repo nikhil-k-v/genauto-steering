@@ -14,7 +14,8 @@ python -m steering flash          # = pio run -t upload in firmware/teensy
 ```
 
 The CCM OLED shows the logo for 2 s, then the dashboard (M S T C D boxes, state, dial).
-`scripts/check_firmware.sh` type-checks the firmware on the host without a toolchain.
+`scripts/check_firmware.sh` type-checks the firmware on the host without a toolchain, then runs the real
+firmware against a simulated motor on CAN (motor off → on → scan → wrong id → unpowered).
 
 ## 2. First run
 
@@ -81,7 +82,8 @@ The CCM OLED shows the logo for 2 s, then the dashboard (M S T C D boxes, state,
 | C3 frames stopped, CRC errors | Health → counters | cable/noise; protocol version mismatch (flash both sides from the same commit) |
 | C5 red while C4 green | — | Teensy cannot parse what we send (version) or USB TX dead |
 | M1 red | — | CAN bus-off: transceiver power, STBY, CAN_H/L swap, termination |
-| M4 amber in REST | — | motor off / wrong id (Settings → Scan bus) |
+| M4 amber in Motor off ("never replied") | Settings → Scan the CAN bus | motor unpowered, or on another id: the scan lists who answers; Use this id |
+| M1/M2 amber "frames not acknowledged" | — | nothing on the bus ACKs the Teensy's poll: motor unpowered, CAN_H/L or termination |
 | M4 red while running | Events: "Safety stop: Motor stopped replying on CAN" | power dropout |
 | M5 amber "frozen" | — | encoder/driver; power-cycle; run the motor's own `c` calibration via its debug port |
 | S2 red ("Safety stop: …") | rail state line | it names the check that stopped the motor, the measured value, and what to check |

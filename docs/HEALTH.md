@@ -74,9 +74,9 @@ isn't green is the layer to fix.
 |---|---|
 | M1 | FlexCAN3 `ESR1.FLTCONF` (bus-off / passive) and `ECR` TEC/REC (>96 = warning) |
 | M2 | `CANbus.write()` failures per health period (>5 = FAIL), TEC > 127 = BLOCKED |
-| M3 | any RX frame in the last period |
-| M4 | age of last reply from `MOTOR_CAN_ID`; rate vs `CAN_RX_LOW_HZ` while enabled; BLOCKED in REST (the motor only answers commands), FAIL while enabled |
-| M5 | NaN decode, or identical payload 200× in a row (frozen) |
+| M3 | any RX frame in the last period (BLOCKED when nothing is heard: the Teensy polls the motor from boot) |
+| M4 | age of last reply from the configured id; rate vs `CAN_RX_LOW_HZ` while enabled, vs `CAN_RX_REST_LOW_HZ` with the motor off (the Teensy polls it at `CAN_REST_POLL_HZ`, 100 Hz); never replied / stale = BLOCKED with the motor off, FAIL while enabled |
+| M5 | NaN decode, or identical payload 200× in a row while the motor is being commanded (frozen) |
 | M6 | reply current vs `CURRENT_CUTOFF_A` (70 % = BLOCKED) |
 | S1 | debounced pin 22 (20 ms) |
 | S2 | `trip != TRIP_NONE` |

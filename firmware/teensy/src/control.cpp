@@ -159,6 +159,7 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
         if (!g_ctl.switch_armed)     return reject(why, "idle switch on");
         if (!can_alive)              return reject(why, "no motor CAN reply");
         if (control_motor_enabled()) return reject(why, "motor already on");
+        if (can_motor_scan_busy())   return reject(why, "CAN scan running");
         noInterrupts(); arm_motor(CS_HOLD); interrupts();
         break;
     case CMD_DISABLE:
@@ -188,6 +189,7 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
         if (!g_ctl.switch_armed)     return reject(why, "idle switch on");
         if (!can_alive)              return reject(why, "no motor CAN reply");
         if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST || g_ctl.cs == CS_CALIB) return reject(why, "busy, stop it first");
+        if (can_motor_scan_busy())   return reject(why, "CAN scan running");
         noInterrupts();
         if (!control_motor_enabled()) arm_motor(CS_FREESPIN); else set_state(CS_FREESPIN);
         g_ctl.integral_Nm = 0;
@@ -212,6 +214,7 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
         if (!g_ctl.switch_armed)     return reject(why, "idle switch on");
         if (!can_alive)              return reject(why, "no motor CAN reply");
         if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST) return reject(why, "busy, stop it first");
+        if (can_motor_scan_busy())   return reject(why, "CAN scan running");
         noInterrupts();
         if (!control_motor_enabled()) arm_motor(CS_CALIB); else set_state(CS_CALIB);
         g_ctl.calib = CAL_SEEK_LEFT; g_ctl.test_start_ms = ms_now();
@@ -243,6 +246,7 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
         if (!can_alive)              return reject(why, "no motor CAN reply");
         if (!(g_ctl.left_captured && g_ctl.right_captured)) return reject(why, "save L and R first");
         if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST) return reject(why, "busy, stop it first");
+        if (can_motor_scan_busy())   return reject(why, "CAN scan running");
         noInterrupts();
         if (!control_motor_enabled()) arm_motor(CS_CALIB); else set_state(CS_CALIB);
         g_ctl.calib = CAL_GO_CENTER; g_ctl.test_start_ms = ms_now();
@@ -253,11 +257,18 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
     case CMD_SET_MOTOR_ID:
         if (control_motor_enabled()) return reject(why, "motor must be off");
         if (arg < 1 || arg > 127)    return reject(why, "id out of range");
-        g_motor_id = (uint8_t)arg;
+        if (can_motor_scan_busy())   return reject(why, "CAN scan running");
+        can_motor_set_id((uint8_t)arg);
         break;
-    case CMD_CAN_SCAN:
+    case CMD_CAN_SCAN: {
         if (control_motor_enabled()) return reject(why, "motor must be off");
-        break;   // actual scan is performed by comms (blocking) after this returns true
+        // arg = first id (0 -> 1), farg = last id (<= 0 -> 127).  The ISR pings;
+        // comms_poll_scan() sends the CanScanPacket when it is done (~0.3 s).
+        const uint8_t first = (uint8_t)(arg ? (arg > 127 ? 127 : arg) : 1);
+        const uint8_t last  = (uint8_t)(farg >= 1.f && farg <= 127.f ? farg : 127);
+        if (!can_motor_scan_start(first, last)) return reject(why, "CAN scan running");
+        break;
+    }
     case CMD_REQ_CONFIG: case CMD_RESET_COUNTERS:
         break;
     default:
@@ -485,7 +496,8 @@ void control_tick() {
     resolve_mode(now_ms);
 
     float kp = 0, kd = 0, t_Nm = 0, vel_cmd = 0;
-    bool send_cmd = false;
+    // Motor off / safety stop: keep polling so the motor keeps answering (see can_motor.h).
+    CanTxKind tx = CAN_TX_POLL;
 
     switch (g_ctl.cs) {
     case CS_REST:
@@ -494,26 +506,26 @@ void control_tick() {
         break;
 
     case CS_FREESPIN:
-        send_cmd = true; kp = kd = 0; t_Nm = 0;
+        tx = CAN_TX_CMD; kp = kd = 0; t_Nm = 0;
         g_ctl.sp_cmd_deg = g_ctl.sp_target_deg = pos_deg;   // so re-grip is seamless
         g_ctl.torque_cmd_Nm = 0;
         break;
 
     case CS_CALIB:
-        send_cmd = true;
+        tx = CAN_TX_CMD;
         run_calibration(pos_deg, vel_deg_s, now_ms, dt, kp, kd, t_Nm);
         g_ctl.torque_cmd_Nm = t_Nm;
         break;
 
     case CS_TEST:
-        send_cmd = true;
+        tx = CAN_TX_CMD;
         run_test(now_ms, pos_deg, kp, kd, t_Nm);
         if (g_ctl.test_type == TEST_RELAY) { g_ctl.torque_cmd_Nm = t_Nm; break; }
         // step test falls through to the normal servo path
         [[fallthrough]];
     case CS_HOLD:
     case CS_TRAJ: {
-        send_cmd = true;
+        tx = CAN_TX_CMD;
 
         // 1) limit the target, 2) slew the command toward it
         float lo, hi; active_limits(lo, hi);
@@ -544,7 +556,7 @@ void control_tick() {
     default: break;
     }
 
-    can_motor_tick_send(send_cmd, deg2rad(g_ctl.sp_cmd_deg + g_ctl.pos_offset_deg), deg2rad(vel_cmd), kp, kd, t_Nm);
+    can_motor_tick_send(tx, deg2rad(g_ctl.sp_cmd_deg + g_ctl.pos_offset_deg), deg2rad(vel_cmd), kp, kd, t_Nm);
 
     const uint32_t cost = micros() - t0;
     g_ctl.tick_cost_us = cost;
@@ -557,6 +569,8 @@ void control_begin() {
     g_ctl.cs = CS_REST; g_ctl.trip = TRIP_NONE; g_ctl.calib = CAL_IDLE; g_ctl.mode_req = MODE_AUTO;
     g_ctl.kp = DEFAULT_KP; g_ctl.kd = DEFAULT_KD; g_ctl.ki = DEFAULT_KI; g_ctl.tff_Nm = DEFAULT_TFF_NM;
     g_ctl.switch_armed = digitalReadFast(PIN_IDLE_SWITCH) == LOW;
+    // A motor left in motor mode by a Teensy reset goes limp and then to REST.
+    can_motor_queue_special(SPECIAL_EXIT);
     s_timer.priority(64);                       // above USB/serial, below FlexCAN
     s_timer.begin(control_tick, CONTROL_PERIOD_US);
     push_event(EV_BOOT, PROTOCOL_VERSION);

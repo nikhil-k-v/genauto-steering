@@ -1,5 +1,5 @@
 """
-sim.py — a fake Teensy + fake BM-18 behind the Transport interface.
+sim.py — a fake Teensy + fake BM-series motor behind the Transport interface.
 
 `python -m steering ui --sim` runs the whole PC application against this with
 no hardware.  It speaks the real wire protocol (frames, CRC, packet structs)
@@ -7,6 +7,14 @@ and mimics the firmware state machine closely enough that gating, health,
 recording, playback, calibration and tests can all be exercised.  Fault
 injection knobs (`SimTeensy.faults`) let you see what every health node
 looks like when it fails — handy for learning the status bar.
+
+The CAN side is modelled the way the hardware behaves, not short-cut: the motor
+answers only frames sent to ITS id (`SimFaults.motor_can_id`), and only if it is
+powered and the bus works; the Teensy sends one frame per 1 kHz tick with the
+motor on and a zero-gain poll at CAN_REST_POLL_HZ with it off; reply rates,
+"motor alive" and the scan all come from those replies, exactly as in
+firmware/teensy/src (can_motor.cpp, health.cpp).  A sim that pretends the motor
+is alive hides the bugs that bite on the real bench.
 """
 from __future__ import annotations
 
@@ -22,7 +30,8 @@ from .link import Transport
 
 @dataclass
 class SimFaults:
-    motor_power: bool = True        # False -> no CAN replies (M4 BLOCKED/FAIL)
+    motor_power: bool = True        # False -> no CAN replies (M4 BLOCKED/FAIL), nobody ACKs our frames
+    motor_can_id: int = 2           # the id the motor really answers to (Teensy default is 2)
     switch_armed: bool = True       # idle switch
     can_bus_off: bool = False       # M1 FAIL
     frozen_encoder: bool = False    # M5
@@ -69,6 +78,15 @@ class SimMotor:
         self.cur = motor_tau / 1.2                             # ~1.2 Nm/A, motor's own torque only
 
 
+# firmware/teensy/src/config.h
+CAN_REST_POLL_HZ = 100
+CAN_RX_LOW_HZ = 600
+CAN_RX_REST_LOW_HZ = 50
+CAN_REPLY_TIMEOUT_S = 0.2
+CAN_SCAN_PASSES = 2
+CAN_SCAN_SETTLE_S = 0.05
+
+
 class SimTeensy:
     def __init__(self, faults: Optional[SimFaults] = None):
         self.f = faults or SimFaults()
@@ -96,7 +114,15 @@ class SimTeensy:
         self.relay_sign = 1
         self.events = []
         self.t = 0.0
-        self.motor_last_reply = -1.0
+        self.motor_last_reply = -1.0    # sim time of the last reply from motor_id (-1 = none since boot / id change)
+        self.motor_id = 2               # the id the Teensy commands (CMD_SET_MOTOR_ID)
+        self.rx_motor = 0               # replies from motor_id
+        self.rx_other = 0               # replies from any other id (seen during scans)
+        self.tec = 0                    # FlexCAN TX error counter
+        self._meas = (12.0, 0.0, 0.0)   # pos/vel/cur in the last reply (motor frame)
+        self._poll_div = 0
+        self._scan: Optional[dict] = None
+        self._hz_prev = (0.0, 0, 0)     # (t, rx_motor, rx_other) at the last health packet
         self._cal_stage_t = 0.0
         self._cal_still = 0.0
         self._cal_torque = 1.0
@@ -145,7 +171,8 @@ class SimTeensy:
 
     # ---- command handling --------------------------------------------------------------------
     def command(self, cmd, arg, farg):
-        alive = self.f.motor_power and (self.t - self.motor_last_reply) < 0.2 if self.motor_last_reply >= 0 else self.f.motor_power
+        alive = self.motor_fresh
+        scanning = self.scan_busy
         def rej(txt):
             self.event(P.EV_CMD_REJECTED, cmd, txt); return False
         if cmd == P.CMD_ENABLE:
@@ -153,6 +180,7 @@ class SimTeensy:
             if not self.f.switch_armed: return rej("idle switch on")
             if not alive: return rej("no motor CAN reply")
             if self.enabled: return rej("motor already on")
+            if scanning: return rej("CAN scan running")
             self.arm(P.CS_HOLD)
         elif cmd == P.CMD_DISABLE:
             if self.cs == P.CS_TRIPPED: self.event(P.EV_CMD_ACCEPTED, cmd); return True
@@ -175,6 +203,7 @@ class SimTeensy:
             if not self.f.switch_armed: return rej("idle switch on")
             if not alive: return rej("no motor CAN reply")
             if self.cs in (P.CS_TRAJ, P.CS_TEST, P.CS_CALIB): return rej("busy, stop it first")
+            if scanning: return rej("CAN scan running")
             if not self.enabled: self.arm(P.CS_FREESPIN)
             else: self.set_state(P.CS_FREESPIN)
         elif cmd == P.CMD_FREESPIN_OFF:
@@ -189,6 +218,7 @@ class SimTeensy:
             if not self.f.switch_armed: return rej("idle switch on")
             if not alive: return rej("no motor CAN reply")
             if self.cs in (P.CS_TRAJ, P.CS_TEST): return rej("busy, stop it first")
+            if scanning: return rej("CAN scan running")
             if not self.enabled: self.arm(P.CS_CALIB)
             else: self.set_state(P.CS_CALIB)
             self.calib = P.CAL_SEEK_LEFT; self._cal_stage_t = self.t; self._cal_torque = -1.0
@@ -208,13 +238,27 @@ class SimTeensy:
             if not self.f.switch_armed: return rej("idle switch on")
             if not alive: return rej("no motor CAN reply")
             if not (self.left_cap and self.right_cap): return rej("save L and R first")
+            if self.cs in (P.CS_TRAJ, P.CS_TEST): return rej("busy, stop it first")
+            if scanning: return rej("CAN scan running")
             if not self.enabled: self.arm(P.CS_CALIB)
             else: self.set_state(P.CS_CALIB)
             self.calib = P.CAL_GO_CENTER; self._cal_stage_t = self.t; self.sp_cmd = self.rep_pos()
             self.event(P.EV_CALIB_STAGE, P.CAL_GO_CENTER)
+        elif cmd == P.CMD_SET_MOTOR_ID:
+            if self.enabled: return rej("motor must be off")
+            if not 1 <= arg <= 127: return rej("id out of range")
+            if scanning: return rej("CAN scan running")
+            self.motor_id = arg
+            self.motor_last_reply = -1.0          # replies so far were from the old id
+            self.out_queue.append(self.config())
         elif cmd == P.CMD_CAN_SCAN:
-            pass
-        elif cmd in (P.CMD_REQ_CONFIG, P.CMD_RESET_COUNTERS, P.CMD_SET_MOTOR_ID):
+            if self.enabled: return rej("motor must be off")
+            if scanning: return rej("CAN scan running")
+            first = min(127, arg) if arg else 1
+            last = int(farg) if 1 <= farg <= 127 else 127
+            first, last = min(first, last), max(first, last)
+            self._scan = {"first": first, "last": last, "next": first, "pass": 0, "until": None, "seen": set()}
+        elif cmd in (P.CMD_REQ_CONFIG, P.CMD_RESET_COUNTERS):
             pass
         else:
             return rej("unknown command")
@@ -238,7 +282,7 @@ class SimTeensy:
         # safety
         if self.enabled:
             if not self.f.switch_armed: self.do_trip(P.TRIP_SWITCH_OPENED, "pin 22 open")
-            elif not self.f.motor_power: self.do_trip(P.TRIP_CAN_LOST, "")
+            elif not self.motor_fresh: self.do_trip(P.TRIP_CAN_LOST, "")
             elif self.t - self.enable_t > 0.25:
                 if abs(vel) > 1430: self.do_trip(P.TRIP_VELOCITY, f"{vel:.0f} deg/s")
                 lo, hi = self.limits()
@@ -284,7 +328,7 @@ class SimTeensy:
                     if el > self.test_dur:
                         self.test_type = P.TEST_NONE; self.event(P.EV_TEST_DONE, P.TEST_RELAY)
                         self.sp_cmd = self.sp_target = pos; self.enable_t = self.t; self.set_state(P.CS_HOLD)
-                    self._reply()
+                    self._can_tick()
                     return
             lo, hi = self.limits()
             self.sp_target = max(lo, min(hi, self.sp_target))
@@ -303,11 +347,64 @@ class SimTeensy:
             t_ff = self.integral + self.tff
             self.torque_cmd = t_ff
             self.m.step(dt, self.sp_cmd + self._zero_offset + self._soft_offset, 0, kp, kd, t_ff)
-        self._reply()
+        self._can_tick()
 
-    def _reply(self):
-        if self.f.motor_power and not self.f.can_bus_off:
+    # ---- CAN (firmware can_motor.cpp + the motor's answer) ------------------------------------
+    @property
+    def motor_fresh(self) -> bool:
+        return self.motor_last_reply >= 0 and (self.t - self.motor_last_reply) < CAN_REPLY_TIMEOUT_S
+
+    @property
+    def scan_busy(self) -> bool:
+        return self._scan is not None
+
+    def _can_send(self, can_id: int):
+        """One frame on the bus.  The motor ACKs any frame and answers the ones addressed to it."""
+        if self.f.can_bus_off:
+            return
+        if not self.f.motor_power:                  # nobody on the bus to ACK: TEC climbs to error-passive
+            self.tec = min(128, self.tec + 8)
+            return
+        self.tec = max(0, self.tec - 1)
+        if can_id != self.f.motor_can_id:
+            return
+        if self._scan is not None:
+            self._scan["seen"].add(can_id)
+        if can_id == self.motor_id:
+            self.rx_motor += 1
             self.motor_last_reply = self.t
+            self._meas = (self.m.pos, self.m.vel, self.m.cur)
+        else:
+            self.rx_other += 1
+
+    def _can_tick(self):
+        """What the 1 kHz ISR puts on the bus this tick: a scan ping, or the command
+        (motor on), or every 10th tick a zero-gain poll (motor off)."""
+        sc = self._scan
+        if sc is not None and sc["until"] is None:
+            self._can_send(sc["next"])
+            if sc["next"] >= sc["last"]:
+                sc["next"] = sc["first"]; sc["pass"] += 1
+                if sc["pass"] >= CAN_SCAN_PASSES:
+                    sc["until"] = self.t + CAN_SCAN_SETTLE_S
+            else:
+                sc["next"] += 1
+            return
+        if sc is not None and self.t >= sc["until"]:
+            ids = sorted(sc["seen"])[:16]
+            pkt = P.CanScanPacket(type=P.PKT_CAN_SCAN, count=len(ids))
+            for i, cid in enumerate(ids):
+                pkt.ids[i] = cid
+            self.out_queue.append(pkt.to_bytes())
+            self._scan = None
+        if self.enabled:
+            self._poll_div = 0
+            self._can_send(self.motor_id)
+        else:
+            self._poll_div += 1
+            if self._poll_div >= 1000 // CAN_REST_POLL_HZ:
+                self._poll_div = 0
+                self._can_send(self.motor_id)
 
     def _calib_tick(self, dt, pos, vel):
         still = abs(vel) < 4.0
@@ -366,23 +463,37 @@ class SimTeensy:
         f = ((P.TF_ENABLED if self.enabled else 0) | (P.TF_ZEROED if self.zeroed else 0)
              | (P.TF_SWITCH_ARMED if self.f.switch_armed else 0) | (P.TF_TEST_RUNNING if self.test_type else 0)
              | (P.TF_LIMITS_VALID if self.limits_valid else 0) | (P.TF_FREESPIN if self.cs == P.CS_FREESPIN else 0))
-        pos = self.rep_pos()
+        # what the Teensy knows is the last reply (nothing before the motor has answered)
+        mpos, mvel, mcur = self._meas if self.motor_last_reply >= 0 else (self._zero_offset + self._soft_offset, 0.0, 0.0)
+        pos = mpos - self._zero_offset - self._soft_offset
         if self.f.frozen_encoder:
             pos = 0.0
         return P.TelemetryPacket(type=P.PKT_TELEMETRY, ctrl_state=self.cs, flags=f, seq_setpoint=self.sp_seq & 0xFF,
                                  t_us=int(self.t * 1e6) & 0xFFFFFFFF, setpoint_deg=self.sp_cmd, position_deg=pos,
-                                 velocity_deg_s=self.m.vel, current_A=self.m.cur, torque_cmd_Nm=self.torque_cmd).to_bytes()
+                                 velocity_deg_s=mvel, current_A=mcur, torque_cmd_Nm=self.torque_cmd).to_bytes()
 
     def health(self) -> bytes:
         w = 0
         def setn(i, s): nonlocal w; w |= (s & 3) << (2 * i)
-        alive = self.f.motor_power and not self.f.can_bus_off
-        setn(P.HN_CAN_CTRL, P.HS_FAIL if self.f.can_bus_off else P.HS_OK)
-        setn(P.HN_CAN_TX, P.HS_OK)
-        setn(P.HN_CAN_RX_ANY, P.HS_OK if alive else (P.HS_UNKNOWN if self.motor_last_reply < 0 else P.HS_BLOCKED))
-        setn(P.HN_CAN_MOTOR, P.HS_OK if alive else (P.HS_UNKNOWN if self.motor_last_reply < 0 else (P.HS_FAIL if self.enabled else P.HS_BLOCKED)))
-        setn(P.HN_MOTOR_DATA, P.HS_BLOCKED if self.f.frozen_encoder else (P.HS_OK if alive else P.HS_UNKNOWN))
-        setn(P.HN_MOTOR_CURRENT, P.HS_OK if abs(self.m.cur) < 21 else P.HS_BLOCKED)
+        # rates over the health period, from the counters (health.cpp)
+        t0, m0, o0 = self._hz_prev
+        span = max(1e-3, self.t - t0)
+        hz_m, hz_o = int((self.rx_motor - m0) / span), int((self.rx_other - o0) / span)
+        self._hz_prev = (self.t, self.rx_motor, self.rx_other)
+        valid = self.motor_last_reply >= 0
+        age = 0xFFFF if not valid else min(0xFFFE, int((self.t - self.motor_last_reply) * 1000))
+        bus_state = 3 if self.f.can_bus_off else 2 if self.tec >= 128 else 1 if self.tec > 96 else 0
+        setn(P.HN_CAN_CTRL, P.HS_FAIL if bus_state == 3 else P.HS_BLOCKED if bus_state else P.HS_OK)
+        setn(P.HN_CAN_TX, P.HS_BLOCKED if self.tec > 127 else P.HS_OK)
+        setn(P.HN_CAN_RX_ANY, P.HS_OK if (hz_m + hz_o) else P.HS_BLOCKED)
+        low = CAN_RX_LOW_HZ if self.enabled else CAN_RX_REST_LOW_HZ
+        if age == 0xFFFF: m4 = P.HS_FAIL if self.enabled else P.HS_BLOCKED
+        elif age > CAN_REPLY_TIMEOUT_S * 1000: m4 = P.HS_FAIL if self.enabled else P.HS_BLOCKED
+        elif hz_m < low and not self.scan_busy: m4 = P.HS_BLOCKED
+        else: m4 = P.HS_OK
+        setn(P.HN_CAN_MOTOR, m4)
+        setn(P.HN_MOTOR_DATA, P.HS_UNKNOWN if not valid else P.HS_BLOCKED if self.f.frozen_encoder else P.HS_OK)
+        setn(P.HN_MOTOR_CURRENT, P.HS_UNKNOWN if not valid else P.HS_OK if abs(self._meas[2]) < 21 else P.HS_BLOCKED)
         setn(P.HN_SWITCH, P.HS_OK if self.f.switch_armed else P.HS_BLOCKED)
         setn(P.HN_TRIP, P.HS_FAIL if self.cs == P.CS_TRIPPED else P.HS_OK)
         setn(P.HN_ISR, P.HS_FAIL if self.f.isr_overruns > 10 else P.HS_BLOCKED if self.f.isr_overruns else P.HS_OK)
@@ -391,16 +502,15 @@ class SimTeensy:
         hb_age = 0xFFFF if not self.pc_hb_last else min(0xFFFE, int((self.t - self.pc_hb_last) * 1000))
         setn(P.HN_PC_LINK, P.HS_UNKNOWN if hb_age == 0xFFFF else P.HS_FAIL if hb_age > 1000 else P.HS_OK)
         setn(P.HN_OLED, P.HS_OK)
-        motor_age = 0xFFFF if self.motor_last_reply < 0 else min(0xFFFE, int((self.t - self.motor_last_reply) * 1000))
         return P.HealthPacket(type=P.PKT_HEALTH, trip_code=self.trip, calib_stage=self.calib, ctrl_state=self.cs,
                               t_ms=int(self.t * 1000) & 0xFFFFFFFF, node_states=w,
-                              can_rx_motor_hz=1000 if (alive and self.enabled) else 0, can_rx_other_hz=0,
-                              can_tec=0, can_rec=0, can_bus_state=3 if self.f.can_bus_off else 0,
+                              can_rx_motor_hz=hz_m, can_rx_other_hz=hz_o,
+                              can_tec=self.tec, can_rec=0, can_bus_state=bus_state,
                               isr_overruns=self.f.isr_overruns, loop_hz=1000, pc_hb_age_ms=hb_age,
-                              reserved=0, motor_age_ms=motor_age).to_bytes()
+                              reserved=0, motor_age_ms=age).to_bytes()
 
     def config(self) -> bytes:
-        return P.ConfigEchoPacket(type=P.PKT_CONFIG_ECHO, motor_id=2, zeroed=int(self.zeroed),
+        return P.ConfigEchoPacket(type=P.PKT_CONFIG_ECHO, motor_id=self.motor_id, zeroed=int(self.zeroed),
                                   limits_valid=int(self.limits_valid), kp=self.kp, kd=self.kd, ki=self.ki,
                                   tff_Nm=self.tff, limit_left_deg=self.limit_l, limit_right_deg=self.limit_r).to_bytes()
 
@@ -424,9 +534,6 @@ class SimTeensy:
             self.mode_req = pkt.mode if pkt.sticky else P.MODE_AUTO
         elif k == P.PKT_COMMAND:
             self.command(pkt.cmd, pkt.arg, pkt.farg)
-            if pkt.cmd == P.CMD_CAN_SCAN:
-                s = P.CanScanPacket(type=P.PKT_CAN_SCAN, count=1); s.ids[0] = 2
-                self.out_queue.append(s.to_bytes())
             if pkt.cmd in (P.CMD_REQ_CONFIG, P.CMD_SET_ZERO, P.CMD_CAPTURE_LEFT, P.CMD_CAPTURE_RIGHT):
                 self.out_queue.append(self.config())
         elif k == P.PKT_TEST_START:

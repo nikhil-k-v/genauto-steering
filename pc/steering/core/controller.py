@@ -56,6 +56,9 @@ class LiveState:
     last_rejection_t: float = 0.0
     trip_text: str = ""                      # firmware detail of the last safety stop ("31.2 A")
     can_scan_ids: list = field(default_factory=list)
+    can_scan_status: str = ""                # "" | scanning | done | refused | no_result
+    can_scan_t: float = 0.0                  # when the scan was asked for
+    can_scan_range: tuple = (1, 127)
     pending_gains: Optional[dict] = None     # gains sent but not yet echoed back
 
     @property
@@ -86,7 +89,7 @@ class Controller:
         bus.subscribe("health", lambda t: setattr(self.live, "tree", t))
         bus.subscribe("config", self._on_config)
         bus.subscribe("event", self._on_event)
-        bus.subscribe("can_scan", lambda p: setattr(self.live, "can_scan_ids", list(p.ids[: p.count])))
+        bus.subscribe("can_scan", self._on_can_scan)
 
     # ---- inputs --------------------------------------------------------------------------
     def _on_telemetry(self, t):
@@ -98,8 +101,15 @@ class Controller:
         if pg and all(abs(getattr(c, k) - v) < 1e-3 for k, v in pg.items()):
             self.live.pending_gains = None
 
+    def _on_can_scan(self, p):
+        self.live.can_scan_ids = list(p.ids[: p.count])
+        self.live.can_scan_status = "done"
+        log.info("CAN scan %s-%s: %s", *self.live.can_scan_range, self.live.can_scan_ids or "no answer")
+
     def _on_event(self, e: P.EventPacket):
         self.live.last_event = e
+        if e.code == P.EV_CMD_REJECTED and e.arg == P.CMD_CAN_SCAN and self.live.can_scan_status == "scanning":
+            self.live.can_scan_status = "refused"
         if e.code == P.EV_CMD_REJECTED:
             self.live.last_rejection = refused(e.arg, e.text_str)
             self.live.last_rejection_t = time.monotonic()
@@ -143,8 +153,13 @@ class Controller:
     def capture_left(self):    self._gate("capture_limits"); self.link.send(P.command(P.CMD_CAPTURE_LEFT))
     def capture_right(self):   self._gate("capture_limits"); self.link.send(P.command(P.CMD_CAPTURE_RIGHT))
     def go_center_zero(self):  self._gate("go_center_zero"); self.link.send(P.command(P.CMD_GO_CENTER_ZERO))
+    CAN_SCAN_TIMEOUT_S = 3.0                  # firmware answers in ~0.3 s
+
     def can_scan(self, first=1, last=127):
-        self._gate("can_scan"); self.live.can_scan_ids = []; self.link.send(P.command(P.CMD_CAN_SCAN, first, float(last)))
+        self._gate("can_scan")
+        lv = self.live
+        lv.can_scan_ids, lv.can_scan_status, lv.can_scan_t, lv.can_scan_range = [], "scanning", time.monotonic(), (first, last)
+        self.link.send(P.command(P.CMD_CAN_SCAN, first, float(last)))
     def request_config(self):  self.link.send(P.command(P.CMD_REQ_CONFIG))
     def set_motor_id(self, cid: int):
         self._gate("can_scan"); self.link.send(P.command(P.CMD_SET_MOTOR_ID, cid))
@@ -297,7 +312,11 @@ class Controller:
 
     def tick(self):
         """Call ~10 Hz from App: ends firmware-driven recordings (tests, calibration)
-        once the Teensy has left that state."""
+        once the Teensy has left that state; times out a CAN scan nobody answered."""
+        lv = self.live
+        if lv.can_scan_status == "scanning" and time.monotonic() - lv.can_scan_t > self.CAN_SCAN_TIMEOUT_S:
+            lv.can_scan_status = "no_result"
+            log.warning("CAN scan: no result from the Teensy after %.0f s", self.CAN_SCAN_TIMEOUT_S)
         rec = self.recorder.rec
         if not (self.recorder.active and rec):
             return

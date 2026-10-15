@@ -42,4 +42,6 @@ Examples from the datasheet (position-only commands, kp=... as encoded): `7F FF 
 `90 15 …` 90°, `A0 2A …` 180°, `B0 40 …` 270°, `C0 56 …` 360°.
 
 **Two CAN states.** REST (0xFD): MOSFETs off, waiting. MOTOR (0xFC): FOC running, accepts the single
-command frame type and answers each one.
+command frame type and answers each one. In REST the motor still answers every frame addressed to its id
+(Cheetah-style firmware replies before checking the mode) but ignores command contents; it never transmits
+on its own. The Teensy relies on this: it polls at 100 Hz with the motor off, and the CAN scan pings ids.
