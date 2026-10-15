@@ -64,10 +64,13 @@ static inline void unpack_reply(const uint8_t b[8], float& p, float& v, float& t
     t = u2f(T, MOTOR_T_MIN_NM,    MOTOR_T_MAX_NM,    12);
 }
 
-// ---- RX (runs from CANbus.events() in main-loop context) -------------------------
+// ---- RX: called straight from the FlexCAN interrupt (no events()), as in the
+// old firmware that ran on this motor.  The reply carries the motor id in
+// buf[0]; its frame id has also been the motor id on this hardware, so accept
+// a frame if either matches.
 static void on_can_rx(const CAN_message_t& m) {
-    if (m.len != 8) { g_can.rx_bad_len++; return; }
-    const uint8_t id = m.buf[0];
+    if (m.len < 6) { g_can.rx_bad_len++; return; }
+    const uint8_t id = (m.id == g_motor_id) ? g_motor_id : m.buf[0];
     if (id < 128) s_seen[id] = true;
     if (id != g_motor_id) { g_can.rx_other++; return; }
 
@@ -81,7 +84,7 @@ static void on_can_rx(const CAN_message_t& m) {
 
     float p, v, t;
     unpack_reply(m.buf, p, v, t);
-    noInterrupts();                 // the ISR reads these as a set
+    noInterrupts();                 // the control ISR reads these as a set
     g_motor.pos_rad   = p;
     g_motor.vel_rad_s = v;
     g_motor.cur_A     = t;
@@ -112,9 +115,7 @@ void can_motor_begin() {
 #define FLEXCAN3_ESR1 (*(volatile uint32_t*)(IMXRT_FLEXCAN3_ADDRESS + 0x20))
 
 void can_motor_poll() {
-    // events() hands over one queued frame per call: drain what a long main-loop
-    // pass (OLED refresh) let pile up, bounded so the loop never stalls.
-    for (int i = 0; i < 32; i++) CANbus.events();
+    // RX is handled in the FlexCAN interrupt (on_can_rx); only error counters here.
     const uint32_t ecr  = FLEXCAN3_ECR;
     const uint32_t esr1 = FLEXCAN3_ESR1;
     g_can.tec = (uint8_t)(ecr & 0xFF);

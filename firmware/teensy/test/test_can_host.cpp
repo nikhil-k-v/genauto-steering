@@ -126,25 +126,24 @@ int main() {
     run_ms(300);
     CHECK(pc.node(HN_CAN_MOTOR) == HS_OK, "M4 %s after the scan", hs(pc.node(HN_CAN_MOTOR)));
 
-    printf("wrong motor id, then fixed:\n");
+    printf("wrong motor id: turning on ends in a safety stop, then fixed:\n");
     command(CMD_SET_MOTOR_ID, 5); run_ms(400);
     printf("  id 5: M4 %s, replies %u Hz\n", hs(pc.node(HN_CAN_MOTOR)), pc.health.can_rx_motor_hz);
     CHECK(pc.config.motor_id == 5, "config echo id %u", pc.config.motor_id);
     CHECK(pc.node(HN_CAN_MOTOR) != HS_OK, "M4 must not be OK with the wrong id");
-    command(CMD_ENABLE); run_ms(50);
-    CHECK(pc.last(EV_CMD_REJECTED, CMD_ENABLE) && g_ctl.cs == CS_REST, "enable with the wrong id must be refused");
-    command(CMD_SET_MOTOR_ID, 2); run_ms(400);
+    command(CMD_ENABLE); run_ms(400);
+    CHECK(g_ctl.cs == CS_TRIPPED && g_ctl.trip == TRIP_CAN_LOST, "wrong id: state %u trip %u", g_ctl.cs, g_ctl.trip);
+    command(CMD_CLEAR_TRIP); command(CMD_SET_MOTOR_ID, 2); run_ms(400);
     CHECK(pc.node(HN_CAN_MOTOR) == HS_OK, "M4 %s after id fixed", hs(pc.node(HN_CAN_MOTOR)));
 
-    printf("motor unpowered:\n");
+    printf("motor unpowered: turning on ends in a safety stop:\n");
     host_motor.powered = false; run_ms(400);
     printf("  M4 %s\n", hs(pc.node(HN_CAN_MOTOR)));
-    CHECK(pc.node(HN_CAN_MOTOR) == HS_BLOCKED, "M4 %s with the motor unpowered", hs(pc.node(HN_CAN_MOTOR)));
-    pc.events.clear();
-    command(CMD_ENABLE); run_ms(50);
-    rej = pc.last(EV_CMD_REJECTED, CMD_ENABLE);
-    CHECK(rej && strcmp(rej->text, "no motor CAN reply") == 0, "unpowered enable: %s", rej ? rej->text : "accepted?!");
-    host_motor.powered = true; run_ms(300);
+    CHECK(pc.node(HN_CAN_MOTOR) == HS_UNKNOWN, "M4 %s with the motor unpowered and off", hs(pc.node(HN_CAN_MOTOR)));
+    command(CMD_ENABLE); run_ms(400);
+    CHECK(g_ctl.cs == CS_TRIPPED && g_ctl.trip == TRIP_CAN_LOST, "unpowered: state %u trip %u", g_ctl.cs, g_ctl.trip);
+    host_motor.powered = true; host_motor.motor_mode = false;
+    command(CMD_CLEAR_TRIP); run_ms(300);
     command(CMD_ENABLE); run_ms(300);
     CHECK(g_ctl.cs == CS_HOLD, "re-enable after power returns: state %u", g_ctl.cs);
 
@@ -153,6 +152,21 @@ int main() {
     CHECK(g_ctl.cs == CS_TRIPPED && g_ctl.trip == TRIP_CAN_LOST, "state %u trip %u", g_ctl.cs, g_ctl.trip);
     host_motor.powered = true; host_motor.motor_mode = false; run_ms(400);
     CHECK(pc.node(HN_CAN_MOTOR) == HS_OK, "M4 %s: motor heard again while stopped", hs(pc.node(HN_CAN_MOTOR)));
+
+    printf("motor that only answers in motor mode (datasheet reading):\n");
+    command(CMD_CLEAR_TRIP);
+    host_motor.answers_in_rest = false; host_motor.pos_rad = -0.25f; run_ms(500);
+    printf("  off: replies %u Hz, M4 %s\n", pc.health.can_rx_motor_hz, hs(pc.node(HN_CAN_MOTOR)));
+    CHECK(pc.node(HN_CAN_MOTOR) == HS_UNKNOWN, "silent motor off: M4 %s (no data, not a fault)", hs(pc.node(HN_CAN_MOTOR)));
+    pc.events.clear();
+    command(CMD_ENABLE); run_ms(5);
+    CHECK(!pc.last(EV_CMD_REJECTED, CMD_ENABLE), "enable must not need a reply first");
+    run_ms(600);
+    printf("  on: state %u, replies %u Hz, setpoint %.1f deg vs wheel %.1f deg\n", g_ctl.cs,
+           pc.health.can_rx_motor_hz, g_ctl.sp_cmd_deg, control_pos_deg());
+    CHECK(g_ctl.cs == CS_HOLD, "state %u trip %u", g_ctl.cs, g_ctl.trip);
+    CHECK(pc.health.can_rx_motor_hz >= CAN_RX_LOW_HZ, "rx %u Hz while on", pc.health.can_rx_motor_hz);
+    CHECK(fabsf(g_ctl.sp_cmd_deg - rad2deg(-0.25f)) < 0.5f, "setpoint must start at the measured angle (%.1f)", g_ctl.sp_cmd_deg);
 
     printf(g_fail ? "\n%d check(s) FAILED\n" : "\nfirmware host test OK\n", g_fail);
     return g_fail ? 1 : 0;

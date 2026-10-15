@@ -120,6 +120,9 @@ def need(cond: Callable[[GateContext], bool], reason: str) -> Req:
 
 LINK_UP = [node("C1"), node("C2"), node("C3"), node("C4"), node("C5"), node("C6")]
 MOTOR_UP = [node("M1"), node("M3"), node("M4"), node("M5")]
+# Turning the motor on needs only a working bus: the motor may stay silent until it
+# is in motor mode, and the firmware stops it if no reply follows within 200 ms.
+MOTOR_CAN_ON = [node("M1")]
 SAFE = [node("S1"), node("S2")]
 
 IN_POSITION_CONTROL = "only in Position control: press Position control first"
@@ -129,14 +132,14 @@ MOTOR_IS_ON = "the motor is already on"
 ACTIONS: Dict[str, Tuple[str, List[Req]]] = {
     "connect":        ("Connect", []),
     "disconnect":     ("Disconnect", [node("C1")]),
-    "enable":         ("Position control (turn the motor on)", LINK_UP + MOTOR_UP + SAFE + [node("T1"),
+    "enable":         ("Position control (turn the motor on)", LINK_UP + MOTOR_CAN_ON + SAFE + [node("T1"),
                         state_in(P.CS_REST, what=MOTOR_IS_ON)]),
     "disable":        ("Stop motor", [node("C1"), node("C5"), state_not(P.CS_REST, what="the motor is already off")]),
     "clear_trip":     ("Reset safety stop", [node("C1"), node("C5"), state_in(P.CS_TRIPPED, what="there is no safety stop to reset")]),
     "set_zero":       ("Set 0° at the current angle", LINK_UP + [node("M4"), node("M5"),
                         state_not(P.CS_TRAJ, P.CS_TEST, P.CS_CALIB, what="not while following setpoints, testing or calibrating"),
                         not_busy()]),
-    "freespin_on":    ("Free-spin", LINK_UP + MOTOR_UP + SAFE + [state_in(P.CS_REST, P.CS_HOLD,
+    "freespin_on":    ("Free-spin", LINK_UP + MOTOR_CAN_ON + SAFE + [state_in(P.CS_REST, P.CS_HOLD,
                         what="only from Motor off or Position control"), not_busy()]),
     "freespin_off":   ("Position control (grip again after free-spin)", [node("C1"), node("C5"),
                         state_in(P.CS_FREESPIN, what="not in free-spin")]),
@@ -162,13 +165,13 @@ ACTIONS: Dict[str, Tuple[str, List[Req]]] = {
     "stop_record":    ("Stop recording", [need(lambda c: c.recording, "not recording")]),
     "record_freespin":("Record a hand motion (free-spin)", LINK_UP + [node("D2"), state_in(P.CS_FREESPIN,
                         what="press Free-spin first"), need(lambda c: not c.recording, "already recording")]),
-    "calibrate":      ("Find end stops and set 0°", LINK_UP + MOTOR_UP + SAFE + [node("T1"),
+    "calibrate":      ("Find end stops and set 0°", LINK_UP + MOTOR_CAN_ON + SAFE + [node("T1"),
                         state_in(P.CS_REST, P.CS_HOLD, P.CS_FREESPIN, what="not while following setpoints, testing or calibrating"),
                         not_busy()]),
     "calib_abort":    ("Stop calibration", [node("C1"), state_in(P.CS_CALIB, what="calibration is not running")]),
     "capture_limits": ("Save an end stop", LINK_UP + [node("M4"), node("M5"),
                         state_not(P.CS_TRAJ, P.CS_TEST, P.CS_CALIB, what="not while following setpoints, testing or calibrating")]),
-    "go_center_zero": ("Move to the middle of the stops and set 0°", LINK_UP + MOTOR_UP + SAFE + [
+    "go_center_zero": ("Move to the middle of the stops and set 0°", LINK_UP + MOTOR_CAN_ON + SAFE + [
                         state_in(P.CS_REST, P.CS_HOLD, P.CS_FREESPIN, what="not while following setpoints, testing or calibrating"),
                         not_busy()]),
     "can_scan":       ("Scan the CAN bus / change the motor id", [node("C1"), node("C5"),

@@ -1,7 +1,9 @@
 // Host simulation of FlexCAN_T4 with one Yobotics BM motor on the bus.
-// The motor behaves like the Cheetah-derived firmware it runs: it answers EVERY
-// standard frame addressed to its id (REST or motor mode), acts on 0xFC/0xFD/0xFE
+// The motor answers frames addressed to its id (in REST only if answers_in_rest:
+// the datasheet suggests it may only answer in motor mode), acts on 0xFC/0xFD/0xFE
 // specials, applies command frames only in motor mode, and is silent otherwise.
+// Replies reach the firmware's onReceive callback straight away, as the FlexCAN
+// interrupt delivers them when events() is not used.
 #pragma once
 #include "Arduino.h"
 enum CAN_DEV_TABLE { CAN1, CAN2, CAN3 };
@@ -14,6 +16,7 @@ struct HostMotor {
   uint8_t  id = 2;
   bool     powered = true;
   bool     motor_mode = false;
+  bool     answers_in_rest = true;
   float    pos_rad = 0.4f;          // where the wheel sits
   float    zero_rad = 0.0f;
   uint32_t frames_seen = 0, replies = 0, enters = 0, exits = 0;
@@ -54,7 +57,9 @@ template<CAN_DEV_TABLE B, FLEXCAN_RXQUEUE_TABLE R, FLEXCAN_TXQUEUE_TABLE T> stru
     else if (special && f.buf[7] == 0xFD) { m.motor_mode = false; m.exits++; }
     else if (special && f.buf[7] == 0xFE) { m.zero_rad = m.pos_rad; }
     else if (!m.motor_mode) m.cmds_in_rest++;
+    if (!m.motor_mode && !m.answers_in_rest && !special) return 1;
     host_motor_reply();
+    if (cb) { CAN_message_t r = host_can_rx.back(); host_can_rx.pop_back(); cb(r); }   // the RX interrupt
     return 1;
   }
 };

@@ -58,19 +58,17 @@ void health_update(HealthSnapshot& s) {
     s_can_tx_failed_prev = txf;
     set_node(w, HN_CAN_TX, tx_failing ? HS_FAIL : (g_can.tec > 127 ? HS_BLOCKED : HS_OK));
 
-    // M3 anything on the bus.  We poll the motor from boot, so silence is a
-    // finding (BLOCKED), not "no data".
-    set_node(w, HN_CAN_RX_ANY, (s.can_rx_motor_hz + s.can_rx_other_hz) > 0 ? HS_OK : HS_BLOCKED);
+    // M3 anything on the bus.  With the motor off the motor may stay silent (it
+    // may only answer in motor mode), so silence then is "no data", not a fault.
+    const bool heard = (s.can_rx_motor_hz + s.can_rx_other_hz) > 0;
+    set_node(w, HN_CAN_RX_ANY, heard ? HS_OK : enabled ? HS_BLOCKED : HS_UNKNOWN);
 
-    // M4 motor replies.  The motor answers every frame we send it: ~1 kHz while
-    // enabled, ~CAN_REST_POLL_HZ while off (the poll).  No reply with the motor
-    // off is BLOCKED (never replied / unpowered / wrong id: you cannot enable),
-    // with it on FAIL.  While a CAN scan runs the poll pauses, so the rate is not
-    // judged then.
-    const uint16_t low_hz = enabled ? CAN_RX_LOW_HZ : CAN_RX_REST_LOW_HZ;
-    if (s.motor_age_ms == 0xFFFF)                  set_node(w, HN_CAN_MOTOR, enabled ? HS_FAIL : HS_BLOCKED);
-    else if (s.motor_age_ms > CAN_REPLY_TIMEOUT_MS) set_node(w, HN_CAN_MOTOR, enabled ? HS_FAIL : HS_BLOCKED);
-    else if (s.can_rx_motor_hz < low_hz && !can_motor_scan_busy()) set_node(w, HN_CAN_MOTOR, HS_BLOCKED);
+    // M4 motor replies: ~1 kHz while enabled (FAIL if they stop).  With the motor
+    // off it may or may not answer the poll: silent = no data, not a fault
+    // (Position control does not need a reply first).
+    const bool stale = s.motor_age_ms == 0xFFFF || s.motor_age_ms > CAN_REPLY_TIMEOUT_MS;
+    if (stale)                                      set_node(w, HN_CAN_MOTOR, enabled ? HS_FAIL : HS_UNKNOWN);
+    else if (enabled && s.can_rx_motor_hz < CAN_RX_LOW_HZ) set_node(w, HN_CAN_MOTOR, HS_BLOCKED);
     else                                            set_node(w, HN_CAN_MOTOR, HS_OK);
 
     // M5 reply data sane

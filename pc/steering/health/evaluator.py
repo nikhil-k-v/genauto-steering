@@ -236,7 +236,9 @@ class HealthEvaluator:
         ok = st == HS_OK
         mid = f"id {cfg.motor_id}" if cfg else "the configured id"
         if st == HS_UNKNOWN:
-            return {"M5": "no motor data yet", "M6": "no motor data yet", "T4": "screen not checked yet"}.get(nid, "no data yet")
+            return {"M3": "nothing heard on CAN with the motor off (fine: the motor may only answer once on)",
+                    "M4": f"Motor quiet while off ({mid}); it answers once turned on",
+                    "M5": "no motor data yet", "M6": "no motor data yet", "T4": "screen not checked yet"}.get(nid, "no data yet")
         if nid == "M1":
             if fw.can_bus_state >= 3:
                 return "CAN bus-off: the transceiver sees no valid bus (wiring, power, termination)"

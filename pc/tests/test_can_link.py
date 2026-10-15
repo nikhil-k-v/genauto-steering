@@ -86,9 +86,13 @@ def test_scan_is_gated_while_the_motor_is_on(app):
 def test_wrong_motor_id_is_found_and_fixed(app):
     connect(app, SimFaults(motor_can_id=5))
     c = app.controller
-    wait(lambda: node(app, "M4").state == P.HS_BLOCKED and c.live.config is not None, what="no reply from id 2")
-    assert "never replied" in node(app, "M4").reason and "id 2" in node(app, "M4").reason
-    assert not c.can("enable").ok
+    wait(lambda: c.live.config is not None and c.live.health_fw is not None, what="config")
+    assert node(app, "M4").state == P.HS_UNKNOWN            # quiet while off: no data, not a fault
+    assert c.can("enable").ok                               # turning on does not need a reply first
+    c.enable()
+    wait(lambda: c.live.health_fw.trip_code == P.TRIP_CAN_LOST, what="safety stop: no reply after on")
+    c.clear_trip()
+    wait(lambda: c.live.ctrl_state == P.CS_REST, what="Motor off")
     c.can_scan()
     wait(lambda: c.live.can_scan_status == "done", timeout=3, what="scan result")
     assert c.live.can_scan_ids == [5]
@@ -96,7 +100,6 @@ def test_wrong_motor_id_is_found_and_fixed(app):
     c.set_motor_id(5)
     wait(lambda: c.live.config.motor_id == 5, what="id echo")
     wait(lambda: node(app, "M4").state == P.HS_OK, what="M4 with the right id")
-    wait(lambda: c.can("enable").ok, what="enable allowed")
     c.enable()
     wait(lambda: c.live.ctrl_state == P.CS_HOLD, what="Position control")
 
@@ -106,13 +109,28 @@ def test_unpowered_motor_explains_itself(app):
     c = app.controller
     wait(lambda: node(app, "M1").state == P.HS_BLOCKED, what="M1 error-passive")
     assert "not acknowledged" in node(app, "M1").reason
-    assert node(app, "M4").state == P.HS_BLOCKED
     r = c.can("enable")
-    assert not r.ok and any("M4" in s for s in r.reasons)
+    assert not r.ok and any("M1" in s for s in r.reasons)  # nobody ACKs: the motor has no power
     c.can_scan()
     wait(lambda: c.live.can_scan_status == "done", timeout=3, what="scan result")
     assert c.live.can_scan_ids == []
     assert can_scan_line("done", [], (1, 127), 2).startswith("No motor answered")
+
+
+def test_motor_that_only_answers_when_on(app):
+    """Datasheet reading: in REST the motor may not reply at all.  Turning on must still work."""
+    connect(app, SimFaults(answers_in_rest=False))
+    c = app.controller
+    wait(lambda: c.live.health_fw is not None, what="health")
+    time.sleep(0.3)
+    assert c.live.health_fw.can_rx_motor_hz == 0
+    assert node(app, "M4").state == P.HS_UNKNOWN
+    assert c.can("enable").ok, c.can("enable").reasons
+    c.enable()
+    wait(lambda: c.live.ctrl_state == P.CS_HOLD, what="Position control")
+    wait(lambda: c.live.health_fw.can_rx_motor_hz >= 600, what="1 kHz replies while on")
+    time.sleep(0.5)
+    assert c.live.ctrl_state == P.CS_HOLD and c.live.health_fw.trip_code == 0
 
 
 def test_power_loss_while_on_is_a_safety_stop(app):

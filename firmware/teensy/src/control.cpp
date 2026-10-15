@@ -80,13 +80,22 @@ static void go_rest(const char* why) {
     set_state(CS_REST);
 }
 
-// Enter motor mode from REST: seed setpoint at the current position, ramp gains.
+// Enter motor mode from REST.  Like the old firmware this does not need a reply
+// first (the motor may only answer once it is in motor mode).  Until a reply
+// that arrived after this point is seen, the tick sends zero gains / zero torque;
+// then the setpoint is seeded at the measured angle and the gain ramp starts.
+// No reply within CAN_REPLY_TIMEOUT_MS -> safety stop "motor CAN lost".
+static volatile bool     s_wait_first_reply = false;
+static volatile uint32_t s_arm_reply_count = 0;
+
 static void arm_motor(uint8_t cs) {
     const uint32_t now = ms_now();
     g_ctl.enable_ms = now;
     g_ctl.ramp_start_ms = now;
     g_ctl.integral_Nm = 0;
     g_ctl.sp_cmd_deg = g_ctl.sp_target_deg = control_pos_deg();
+    s_arm_reply_count = g_motor.count;
+    s_wait_first_reply = true;
     can_motor_queue_special(SPECIAL_ENTER);
     set_state(cs);
 }
@@ -157,12 +166,12 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
     case CMD_ENABLE:
         if (g_ctl.cs == CS_TRIPPED)  return reject(why, "safety stop: reset");
         if (!g_ctl.switch_armed)     return reject(why, "idle switch on");
-        if (!can_alive)              return reject(why, "no motor CAN reply");
         if (control_motor_enabled()) return reject(why, "motor already on");
         if (can_motor_scan_busy())   return reject(why, "CAN scan running");
         noInterrupts(); arm_motor(CS_HOLD); interrupts();
         break;
     case CMD_DISABLE:
+        s_wait_first_reply = false;
         // Always accepted: a tripped motor is already resting, the latch stays.
         if (g_ctl.cs != CS_TRIPPED) { noInterrupts(); go_rest("disable"); interrupts(); }
         else can_motor_queue_special(SPECIAL_EXIT);
@@ -187,7 +196,6 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
     case CMD_FREESPIN_ON:
         if (g_ctl.cs == CS_TRIPPED)  return reject(why, "safety stop: reset");
         if (!g_ctl.switch_armed)     return reject(why, "idle switch on");
-        if (!can_alive)              return reject(why, "no motor CAN reply");
         if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST || g_ctl.cs == CS_CALIB) return reject(why, "busy, stop it first");
         if (can_motor_scan_busy())   return reject(why, "CAN scan running");
         noInterrupts();
@@ -212,7 +220,6 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
     case CMD_CALIB_START:
         if (g_ctl.cs == CS_TRIPPED)  return reject(why, "safety stop: reset");
         if (!g_ctl.switch_armed)     return reject(why, "idle switch on");
-        if (!can_alive)              return reject(why, "no motor CAN reply");
         if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST) return reject(why, "busy, stop it first");
         if (can_motor_scan_busy())   return reject(why, "CAN scan running");
         noInterrupts();
@@ -243,7 +250,6 @@ bool control_command(uint8_t cmd, uint16_t arg, float farg, char* why) {
     case CMD_GO_CENTER_ZERO:
         if (g_ctl.cs == CS_TRIPPED)  return reject(why, "safety stop: reset");
         if (!g_ctl.switch_armed)     return reject(why, "idle switch on");
-        if (!can_alive)              return reject(why, "no motor CAN reply");
         if (!(g_ctl.left_captured && g_ctl.right_captured)) return reject(why, "save L and R first");
         if (g_ctl.cs == CS_TRAJ || g_ctl.cs == CS_TEST) return reject(why, "busy, stop it first");
         if (can_motor_scan_busy())   return reject(why, "CAN scan running");
@@ -310,7 +316,10 @@ static void run_safety(float pos_deg, float vel_deg_s, float cur_A, uint32_t now
 
     char why[20];
     if (!g_ctl.switch_armed) { trip(TRIP_SWITCH_OPENED, "pin 22 open"); return; }
-    if (!motor_fresh)        { trip(TRIP_CAN_LOST, ""); return; }
+    // Just turned on: the motor gets CAN_REPLY_TIMEOUT_MS to give its first reply.
+    const bool first_reply_due = s_wait_first_reply && (now_ms - g_ctl.enable_ms) < CAN_REPLY_TIMEOUT_MS;
+    if (!motor_fresh && !first_reply_due) { trip(TRIP_CAN_LOST, s_wait_first_reply ? "no reply after on" : ""); return; }
+    if (s_wait_first_reply)  { stall_start = cur_start = 0; return; }   // nothing measured yet
 
     const bool in_grace = (now_ms - g_ctl.enable_ms) < ENABLE_GRACE_MS;
     if (in_grace) { stall_start = cur_start = 0; return; }
@@ -492,6 +501,14 @@ void control_tick() {
     const float    cur_A     = g_motor.cur_A;
     const bool     fresh     = g_motor.valid && (t0 - g_motor.t_us) < CAN_REPLY_TIMEOUT_MS * 1000u;
 
+    // First reply after turning on: start servoing from the measured angle.
+    if (s_wait_first_reply && g_motor.count != s_arm_reply_count) {
+        s_wait_first_reply = false;
+        g_ctl.sp_cmd_deg = g_ctl.sp_target_deg = pos_deg;
+        g_ctl.integral_Nm = 0;
+        g_ctl.enable_ms = g_ctl.ramp_start_ms = now_ms;    // grace + gain ramp from here
+    }
+
     run_safety(pos_deg, vel_deg_s, cur_A, now_ms, fresh);
     resolve_mode(now_ms);
 
@@ -554,6 +571,13 @@ void control_tick() {
         break;
     }
     default: break;
+    }
+
+    // Motor on but no reply yet: limp (zero gains, zero torque) until we know the angle.
+    if (tx == CAN_TX_CMD && s_wait_first_reply && control_motor_enabled()) {
+        kp = kd = t_Nm = vel_cmd = 0;
+        g_ctl.sp_cmd_deg = g_ctl.sp_target_deg = pos_deg;
+        g_ctl.torque_cmd_Nm = 0;
     }
 
     can_motor_tick_send(tx, deg2rad(g_ctl.sp_cmd_deg + g_ctl.pos_offset_deg), deg2rad(vel_cmd), kp, kd, t_Nm);
