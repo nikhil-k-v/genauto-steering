@@ -31,7 +31,7 @@ STATE = {
 
 # what the motor does in that state - used in tooltips and the Health page, not as captions
 STATE_MEANS = {
-    P.CS_REST: "No torque, motor driver off. The wheel turns freely; the motor only reports its angle when asked.",
+    P.CS_REST: "No torque, motor driver off. The wheel turns freely; the Teensy still asks the motor for its angle 100 times a second.",
     P.CS_HOLD: "The motor servos the wheel to the setpoint (slider, or where it was when you turned it on).",
     P.CS_TRAJ: "The motor follows a setpoint stream: a recording, a waveform or the planner.",
     P.CS_TEST: "The Teensy is running a step or relay test.",
@@ -105,6 +105,26 @@ VERDICT = {P.HS_OK: "ok", P.HS_BLOCKED: "not ready", P.HS_FAIL: "fault", P.HS_UN
 # setpoint sources (plot colours follow these)
 SOURCE = {"user": "Position control", "playback": "Playback", "trajectory": "Waveform", "planner": "Planner",
           "test": "Test", "calib": "Calibration"}
+
+
+def can_scan_line(status: str, ids, rng, motor_id) -> str:
+    """The Settings line under 'Scan the CAN bus' (status from LiveState.can_scan_status)."""
+    a, b = rng
+    if status == "scanning":
+        return f"Scanning ids {a} to {b}…"
+    if status == "refused":
+        return "Scan refused by the Teensy (see the reason in the events)"
+    if status == "no_result":
+        return "No scan result from the Teensy after 3 s: is the firmware the same version as this app?"
+    if status != "done":
+        return ""
+    if not ids:
+        return f"No motor answered on ids {a} to {b}: check the 24 V supply and the CAN wiring"
+    line = "Motor answering on id " if len(ids) == 1 else "Motors answering on ids "
+    line += ", ".join(str(i) for i in ids)
+    if motor_id is not None and motor_id not in ids:
+        line += f". The Teensy commands id {motor_id}: enter {ids[0]} above and press Use this id"
+    return line
 
 
 def signed(x: float, d: int = 1) -> str:

@@ -17,7 +17,8 @@ USB 2 Mbps to the laptop. BM-18:
 24 V, 6/18 Nm rated/peak, 15/40 A, 6:1 planetary, dual absolute encoder, MIT-style CAN frames.
 
 **Control.** Motor FOC 20 kHz (kp, kd in the frame) ⊃ Teensy 1 kHz ISR (slew, gain ramp, leaky
-integral, trips; the only CAN writer) ⊃ PC 200 Hz setpoint stream. States: REST HOLD TRAJ JOY TEST
+integral, trips; the only CAN writer — it polls the motor at 100 Hz with the motor off, since the motor only
+answers frames it receives) ⊃ PC 200 Hz setpoint stream. States: REST HOLD TRAJ JOY TEST
 FREESPIN CALIB TRIPPED. Firmware-owned safety constants in `firmware/teensy/src/config.h`.
 
 **Health tree.** Groups **M** motor&CAN · **S** safety · **T** Teensy controller · **C** comms (PC⇄Teensy) ·

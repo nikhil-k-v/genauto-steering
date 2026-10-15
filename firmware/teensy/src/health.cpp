@@ -58,15 +58,16 @@ void health_update(HealthSnapshot& s) {
     s_can_tx_failed_prev = txf;
     set_node(w, HN_CAN_TX, tx_failing ? HS_FAIL : (g_can.tec > 127 ? HS_BLOCKED : HS_OK));
 
-    // M3 anything on the bus.  Unknown until something is heard at all.
-    set_node(w, HN_CAN_RX_ANY, (rx_motor + rx_other) == 0 ? HS_UNKNOWN
-                             : (s.can_rx_motor_hz + s.can_rx_other_hz) > 0 ? HS_OK : HS_BLOCKED);
+    // M3 anything on the bus.  With the motor off the motor may stay silent (it
+    // may only answer in motor mode), so silence then is "no data", not a fault.
+    const bool heard = (s.can_rx_motor_hz + s.can_rx_other_hz) > 0;
+    set_node(w, HN_CAN_RX_ANY, heard ? HS_OK : enabled ? HS_BLOCKED : HS_UNKNOWN);
 
-    // M4 motor replies.  When enabled we expect ~1 kHz; in REST the BM-18 is
-    // silent (it only answers commands), so "no reply" is BLOCKED (= "motor
-    // not powered or not responding; you cannot enable"), not FAIL.
-    if (s.motor_age_ms == 0xFFFF)                  set_node(w, HN_CAN_MOTOR, HS_UNKNOWN);
-    else if (s.motor_age_ms > CAN_REPLY_TIMEOUT_MS) set_node(w, HN_CAN_MOTOR, enabled ? HS_FAIL : HS_BLOCKED);
+    // M4 motor replies: ~1 kHz while enabled (FAIL if they stop).  With the motor
+    // off it may or may not answer the poll: silent = no data, not a fault
+    // (Position control does not need a reply first).
+    const bool stale = s.motor_age_ms == 0xFFFF || s.motor_age_ms > CAN_REPLY_TIMEOUT_MS;
+    if (stale)                                      set_node(w, HN_CAN_MOTOR, enabled ? HS_FAIL : HS_UNKNOWN);
     else if (enabled && s.can_rx_motor_hz < CAN_RX_LOW_HZ) set_node(w, HN_CAN_MOTOR, HS_BLOCKED);
     else                                            set_node(w, HN_CAN_MOTOR, HS_OK);
 

@@ -7,8 +7,8 @@
 //   telemetry           200 Hz
 //   health + OLED       20 / 25 Hz
 //   config echo         5 Hz
-// Nothing here blocks; the only blocking call in the firmware is the CAN
-// scanner, which is only reachable from REST.
+// Nothing here blocks (the CAN scan is stepped by the ISR; comms_poll_scan()
+// only reports the result).
 // =============================================================================
 #include <Arduino.h>
 #include "config.h"
@@ -33,6 +33,7 @@ void setup() {
 void loop() {
     comms_poll();
     can_motor_poll();
+    comms_poll_scan();
     comms_emit_events();
 
     if (s_telem_t >= (1000000 / TELEMETRY_HZ)) { s_telem_t = 0; comms_emit_telemetry(); }

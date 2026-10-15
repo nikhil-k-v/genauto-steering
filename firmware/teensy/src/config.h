@@ -45,7 +45,19 @@
 #define CAN_BITRATE           1000000
 #define CAN_REPLY_TIMEOUT_MS  200    // no reply for this long while enabled -> TRIP_CAN_LOST
 #define CAN_RX_EXPECTED_HZ    1000   // we command at 1 kHz; motor replies to each
-#define CAN_RX_LOW_HZ         600    // below this the A4 node goes WARN(BLOCKED)
+#define CAN_RX_LOW_HZ         600    // below this (motor on) M4 goes BLOCKED
+// The BM motor only ever answers frames addressed to it, in REST as well as in
+// motor mode.  With the motor off we still send it a zero-gain, zero-torque
+// command at this rate (ignored in REST, limp if it was somehow left in motor
+// mode) so position, M3/M4 and "can I turn it on?" are always live.  Without this
+// the Teensy never hears the motor until it is enabled, and enable needs a reply.
+#define CAN_REST_POLL_HZ      100
+#define CAN_RX_REST_LOW_HZ     50    // below this (motor off) M4 goes BLOCKED
+// CAN scan: the ISR pings one id per tick (it stays the only CAN writer), every
+// id CAN_SCAN_PASSES times, then listens CAN_SCAN_SETTLE_MS.  ~300 ms for 1..127;
+// the main loop keeps running (telemetry and health do not stall).
+#define CAN_SCAN_PASSES         2
+#define CAN_SCAN_SETTLE_MS     50
 
 // BM-18 MIT-style field ranges (datasheet 优宝特 BM-18, 2024).  The motor
 // interprets the 12/16-bit fields with these spans — if you change them here

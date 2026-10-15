@@ -41,23 +41,13 @@ static void handle_command(const CommandPacket& c) {
     char why[20];
     if (!control_command(c.cmd, c.arg, c.farg, why)) { send_event(EV_CMD_REJECTED, c.cmd, why); return; }
     switch (c.cmd) {
-    case CMD_CAN_SCAN: {
-        uint8_t ids[16], n = 0;
-        const uint8_t first = (uint8_t)(c.arg ? c.arg : 1);
-        const uint8_t last  = (uint8_t)(c.farg > 0 ? c.farg : 127);
-        can_motor_scan(first, last, ids, n);
-        CanScanPacket s; memset(&s, 0, sizeof s);
-        s.type = PKT_CAN_SCAN; s.count = n; memcpy(s.ids, ids, n);
-        pc_send(&s, sizeof s);
-        break;
-    }
     case CMD_REQ_CONFIG: comms_emit_config(); break;
     case CMD_RESET_COUNTERS:
         g_can.tx_frames = g_can.tx_failed = g_can.rx_motor = g_can.rx_other = g_can.rx_bad_len = g_can.rx_frozen = 0;
         g_ctl.overruns = 0;
         s_usb_parser.crc_errors = s_usb_parser.sync_errors = s_usb_parser.drops = 0;
         break;
-    case CMD_SET_ZERO: case CMD_CAPTURE_LEFT: case CMD_CAPTURE_RIGHT: comms_emit_config(); break;
+    case CMD_SET_ZERO: case CMD_CAPTURE_LEFT: case CMD_CAPTURE_RIGHT: case CMD_SET_MOTOR_ID: comms_emit_config(); break;
     default: break;
     }
 }
@@ -111,6 +101,15 @@ void comms_emit_telemetry() {
 void comms_emit_health(const HealthSnapshot& s) {
     HealthPacket h; health_fill_packet(h, s);
     pc_send(&h, sizeof h);
+}
+
+// The scan runs in the ISR (control_command started it); send its result once.
+void comms_poll_scan() {
+    uint8_t ids[16], n = 0;
+    if (!can_motor_scan_result(ids, n)) return;
+    CanScanPacket s; memset(&s, 0, sizeof s);
+    s.type = PKT_CAN_SCAN; s.count = n; memcpy(s.ids, ids, n);
+    pc_send(&s, sizeof s);
 }
 
 void comms_emit_events() {

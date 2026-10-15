@@ -16,6 +16,7 @@ import webbrowser
 import dearpygui.dearpygui as dpg
 
 from ...server.net import hub_urls, qr_matrix
+from ...words import can_scan_line
 from .. import theme as T
 from ..safe import safe, toast
 
@@ -30,6 +31,7 @@ class SettingsPanel:
         self.c = ui.app.controller
         self.tags = {}
         self._qr_text = None
+        self._mid_seen = None
 
     def build(self):
         g = self.ui.gate
@@ -41,14 +43,15 @@ class SettingsPanel:
                 with dpg.group(horizontal=True):
                     T.label("CAN id")
                     self.tags["mid"] = dpg.add_input_int(default_value=2, width=80, step=0)
-                    T.tip(self.tags["mid"], "The motor's CAN id (1-127). Factory default on this build is 2.")
+                    T.tip(self.tags["mid"], "The motor's CAN id (1-127). Factory default on this build is 2. "
+                                            "Shows the id the Teensy is using once it is connected.")
                     b = T.action("Use this id", "secondary", safe(lambda: self.c.set_motor_id(dpg.get_value(self.tags["mid"]))))
                     g.bind(b, "can_scan", "Tell the Teensy which CAN id to command. Only while the motor is off. "
                                           "It does not reprogram the motor (that needs the motor's own debug port).")
-                b = T.action("Scan the CAN bus for motors", "secondary", safe(self.c.can_scan), LEFT_W - 4)
+                b = T.action("Scan the CAN bus for motors", "secondary", safe(lambda: self.c.can_scan()), LEFT_W - 4)
                 g.bind(b, "can_scan", "Ping ids 1 to 127 with a zero-torque frame and list the ones that answer. "
-                                      "Takes about a second; only while the motor is off.")
-                self.tags["scan"] = T.label("")
+                                      "Takes about a third of a second; only while the motor is off.")
+                self.tags["scan"] = T.label("", wrap=LEFT_W - 6)
 
                 T.gap(22)
                 T.heading("Data")
@@ -174,8 +177,13 @@ class SettingsPanel:
         dpg.configure_item("set_right", width=max(400, w - LEFT_W - 40), height=h + 30)
 
     def refresh(self):
-        ids = self.c.live.can_scan_ids
-        dpg.set_value(self.tags["scan"], ("Motors answering on ids " + ", ".join(str(i) for i in ids)) if ids else "")
+        lv = self.c.live
+        cfg_id = lv.config.motor_id if lv.config else None
+        dpg.set_value(self.tags["scan"], can_scan_line(lv.can_scan_status, lv.can_scan_ids, lv.can_scan_range, cfg_id))
+        # show the id the Teensy really uses (once per change, so typing is not overwritten)
+        if cfg_id is not None and cfg_id != self._mid_seen:
+            self._mid_seen = cfg_id
+            dpg.set_value(self.tags["mid"], cfg_id)
 
     def slow_refresh(self):
         sv = self.app.server

@@ -12,11 +12,17 @@ CanCounters g_can   = {};
 volatile uint8_t g_motor_id = MOTOR_CAN_ID_DEFAULT;
 
 static volatile uint8_t  s_pending_special = SPECIAL_NONE;
-static volatile uint8_t  s_tx_seq = 0;
 static uint8_t           s_last_payload[8];
 static uint8_t           s_same_count = 0;
-static volatile bool     s_scanning = false;
-static volatile bool     s_seen[128];
+static volatile bool     s_cmd_active = false;   // last regular frame was a real command (not a poll)
+static volatile bool     s_seen[128];            // ids that answered (written by RX, main loop)
+static uint16_t          s_poll_div = 0;         // ISR: ticks since the last motor-off poll
+
+// Scan state: started by the main loop, stepped by the ISR (one ping per tick).
+enum : uint8_t { SCAN_IDLE = 0, SCAN_PINGING, SCAN_SETTLING, SCAN_DONE };
+static volatile uint8_t  s_scan_state = SCAN_IDLE;
+static volatile uint8_t  s_scan_first = 1, s_scan_last = 127, s_scan_next = 1, s_scan_pass = 0;
+static volatile uint32_t s_scan_until_ms = 0;
 
 // ---- MIT-style packing ---------------------------------------------------------
 static inline float fclampf(float x, float a, float b) { return x < a ? a : (x > b ? b : x); }
@@ -58,22 +64,27 @@ static inline void unpack_reply(const uint8_t b[8], float& p, float& v, float& t
     t = u2f(T, MOTOR_T_MIN_NM,    MOTOR_T_MAX_NM,    12);
 }
 
-// ---- RX (runs from CANbus.events() in main-loop context) -------------------------
+// ---- RX: called straight from the FlexCAN interrupt (no events()), as in the
+// old firmware that ran on this motor.  The reply carries the motor id in
+// buf[0]; its frame id has also been the motor id on this hardware, so accept
+// a frame if either matches.
 static void on_can_rx(const CAN_message_t& m) {
-    if (m.len != 8) { g_can.rx_bad_len++; return; }
-    const uint8_t id = m.buf[0];
+    if (m.len < 6) { g_can.rx_bad_len++; return; }
+    const uint8_t id = (m.id == g_motor_id) ? g_motor_id : m.buf[0];
     if (id < 128) s_seen[id] = true;
     if (id != g_motor_id) { g_can.rx_other++; return; }
 
-    // frozen-data detector: identical payload 200x in a row = encoder/driver stuck
-    if (memcmp(s_last_payload, m.buf, 8) == 0) { if (s_same_count < 255) s_same_count++; }
+    // frozen-data detector: identical payload 200x in a row while we are really
+    // commanding the motor = encoder/driver stuck.  With the motor off (polls) a
+    // still wheel legitimately repeats the same reply, so it is not judged there.
+    if (s_cmd_active && memcmp(s_last_payload, m.buf, 8) == 0) { if (s_same_count < 255) s_same_count++; }
     else s_same_count = 0;
     memcpy(s_last_payload, m.buf, 8);
     if (s_same_count > 200) g_can.rx_frozen++;
 
     float p, v, t;
     unpack_reply(m.buf, p, v, t);
-    noInterrupts();                 // the ISR reads these as a set
+    noInterrupts();                 // the control ISR reads these as a set
     g_motor.pos_rad   = p;
     g_motor.vel_rad_s = v;
     g_motor.cur_A     = t;
@@ -104,7 +115,7 @@ void can_motor_begin() {
 #define FLEXCAN3_ESR1 (*(volatile uint32_t*)(IMXRT_FLEXCAN3_ADDRESS + 0x20))
 
 void can_motor_poll() {
-    CANbus.events();
+    // RX is handled in the FlexCAN interrupt (on_can_rx); only error counters here.
     const uint32_t ecr  = FLEXCAN3_ECR;
     const uint32_t esr1 = FLEXCAN3_ESR1;
     g_can.tec = (uint8_t)(ecr & 0xFF);
@@ -117,46 +128,92 @@ void can_motor_poll() {
 void can_motor_queue_special(CanSpecial s) { s_pending_special = s; }
 bool can_motor_special_pending()           { return s_pending_special != SPECIAL_NONE; }
 
-CanSpecial can_motor_tick_send(bool send_cmd, float p, float v, float kp, float kd, float t) {
+void can_motor_set_id(uint8_t id) {
+    noInterrupts();
+    g_motor_id = id;
+    g_motor.valid = false;          // replies seen so far were from the old id
+    g_motor.count = 0;
+    s_same_count = 0;
+    interrupts();
+}
+
+static inline void send_frame(CAN_message_t& m) {
+    if (CANbus.write(m)) g_can.tx_frames++; else g_can.tx_failed++;
+}
+
+CanSpecial can_motor_tick_send(CanTxKind kind, float p, float v, float kp, float kd, float t) {
     CAN_message_t m;
     m.id = g_motor_id;
     m.len = 8;
     m.flags.extended = 0;
 
+    // 1) specials (enter / exit / zero) always go first
     const uint8_t special = s_pending_special;
     if (special != SPECIAL_NONE) {
         s_pending_special = SPECIAL_NONE;
         for (int i = 0; i < 7; i++) m.buf[i] = 0xFF;
         m.buf[7] = special;
-        if (CANbus.write(m)) g_can.tx_frames++; else g_can.tx_failed++;
+        send_frame(m);
         return (CanSpecial)special;
     }
-    if (!send_cmd || s_scanning) return SPECIAL_NONE;
-    pack_cmd(m.buf, p, v, kp, kd, t);
-    if (CANbus.write(m)) g_can.tx_frames++; else g_can.tx_failed++;
+
+    // 2) CAN scan: one harmless ping (zero gains, zero torque) per tick
+    if (s_scan_state == SCAN_PINGING) {
+        m.id = s_scan_next;
+        pack_cmd(m.buf, 0, 0, 0, 0, 0);
+        send_frame(m);
+        if (s_scan_next >= s_scan_last) {
+            s_scan_next = s_scan_first;
+            if (++s_scan_pass >= CAN_SCAN_PASSES) {
+                s_scan_until_ms = millis() + CAN_SCAN_SETTLE_MS;
+                s_scan_state = SCAN_SETTLING;
+            }
+        } else {
+            s_scan_next = s_scan_next + 1;
+        }
+        return SPECIAL_NONE;
+    }
+    if (s_scan_state == SCAN_SETTLING && (int32_t)(millis() - s_scan_until_ms) >= 0) s_scan_state = SCAN_DONE;
+
+    // 3) the regular frame
+    if (kind == CAN_TX_CMD) {
+        s_cmd_active = true;
+        s_poll_div = 0;
+        pack_cmd(m.buf, p, v, kp, kd, t);
+        send_frame(m);
+    } else if (kind == CAN_TX_POLL) {
+        s_cmd_active = false;
+        if (++s_poll_div >= CONTROL_HZ / CAN_REST_POLL_HZ) {
+            s_poll_div = 0;
+            pack_cmd(m.buf, 0, 0, 0, 0, 0);     // ignored in REST; limp if the motor is in motor mode
+            send_frame(m);
+        }
+    } else {
+        s_cmd_active = false;
+    }
     return SPECIAL_NONE;
 }
 
-// Blocking scan: only legal in REST (the caller checks).  Pings every id with
-// a zero-gain, zero-torque command (harmless) and collects who answers.
-void can_motor_scan(uint8_t first, uint8_t last, uint8_t* found, uint8_t& n_found) {
+// ---- CAN scan (main loop side) ------------------------------------------------------
+bool can_motor_scan_busy() { return s_scan_state == SCAN_PINGING || s_scan_state == SCAN_SETTLING; }
+
+bool can_motor_scan_start(uint8_t first, uint8_t last) {
+    if (can_motor_scan_busy()) return false;
     if (first < 1) first = 1;
     if (last > 127) last = 127;
     if (first > last) { uint8_t x = first; first = last; last = x; }
     memset((void*)s_seen, 0, sizeof(s_seen));
-    s_scanning = true;
-    uint8_t ping[8];
-    pack_cmd(ping, 0, 0, 0, 0, 0);
-    for (uint8_t id = first; id <= last; id++) {
-        CAN_message_t m; m.id = id; m.len = 8; m.flags.extended = 0;
-        memcpy(m.buf, ping, 8);
-        CANbus.write(m); delayMicroseconds(400);
-        CANbus.write(m); delayMicroseconds(400);
-        CANbus.events();
-    }
-    const uint32_t until = millis() + 600;
-    while ((int32_t)(millis() - until) < 0) { CANbus.events(); yield(); }
+    noInterrupts();
+    s_scan_first = first; s_scan_last = last; s_scan_next = first; s_scan_pass = 0;
+    s_scan_state = SCAN_PINGING;      // last: the ISR starts pinging on its next tick
+    interrupts();
+    return true;
+}
+
+bool can_motor_scan_result(uint8_t* found, uint8_t& n_found) {
+    if (s_scan_state != SCAN_DONE) return false;
     n_found = 0;
-    for (uint8_t id = first; id <= last && n_found < 16; id++) if (s_seen[id]) found[n_found++] = id;
-    s_scanning = false;
+    for (uint8_t id = s_scan_first; id <= s_scan_last && n_found < 16; id++) if (s_seen[id]) found[n_found++] = id;
+    s_scan_state = SCAN_IDLE;
+    return true;
 }

@@ -6,7 +6,8 @@ Read first: `README.md`, then `docs/ARCHITECTURE.md`, `docs/HEALTH.md`, `docs/SA
 
 1. `protocol/protocol.h` is the only wire contract. Change it first, mirror in
    `pc/steering/protocol.py`, run `pytest tests/test_protocol_sync.py`.
-2. Only the 1 kHz ISR writes CAN (`can_motor_tick_send`). The main loop queues specials.
+2. Only the 1 kHz ISR writes CAN (`can_motor_tick_send`). The main loop queues specials and scan requests.
+   The ISR always sends something (command, or the 100 Hz motor-off poll): the motor only answers frames.
 3. Safety thresholds live in `firmware/teensy/src/config.h` as named constants. No UI path for them.
 4. Every UI control that can move the motor is bound through `GateBinder` to an action in
    `pc/steering/health/gating.py`; every controller method calls `_gate()` first. Add the action there,
@@ -23,7 +24,8 @@ Read first: `README.md`, then `docs/ARCHITECTURE.md`, `docs/HEALTH.md`, `docs/SA
 
 * `cd pc && pytest` — protocol sync, end-to-end flows on the simulator, hub.
 * `xvfb-run -a python tools/ui_smoke.py --shots docs/screenshots` — scripted UI session.
-* `scripts/check_firmware.sh` — host type-check of both firmware targets; `pio run` for real builds.
+* `scripts/check_firmware.sh` — host type-check of the firmware, then `firmware/teensy/test/test_can_host.cpp`
+  (the real firmware against a simulated BM motor on CAN); `pio run` for real builds.
 * `python -m steering ui --sim` — run the app with fault injection (`SimFaults`) to see every node fail.
 
 ## Conventions

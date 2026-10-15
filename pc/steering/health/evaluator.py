@@ -236,10 +236,16 @@ class HealthEvaluator:
         ok = st == HS_OK
         mid = f"id {cfg.motor_id}" if cfg else "the configured id"
         if st == HS_UNKNOWN:
-            return {"M5": "no motor data yet", "M6": "no motor data yet", "T4": "screen not checked yet"}.get(nid, "no data yet")
+            return {"M3": "nothing heard on CAN with the motor off (fine: the motor may only answer once on)",
+                    "M4": f"Motor quiet while off ({mid}); it answers once turned on",
+                    "M5": "no motor data yet", "M6": "no motor data yet", "T4": "screen not checked yet"}.get(nid, "no data yet")
         if nid == "M1":
             if fw.can_bus_state >= 3:
                 return "CAN bus-off: the transceiver sees no valid bus (wiring, power, termination)"
+            if fw.can_bus_state >= 1 and fw.motor_age_ms > 200 and fw.can_tec > fw.can_rec:
+                # TX errors climbing with no motor replies: our frames go out and nobody ACKs them
+                return (f"CAN frames not acknowledged by anyone (TX errors {fw.can_tec}): "
+                        "motor unpowered or not on this bus")
             if fw.can_bus_state == 2:
                 return f"CAN error-passive: too many errors (TX {fw.can_tec}, RX {fw.can_rec})"
             if not ok or fw.can_bus_state == 1:
@@ -259,9 +265,8 @@ class HealthEvaluator:
                 return f"{fw.can_rx_motor_hz} replies/s"
             if fw.motor_age_ms > 200:
                 return f"Motor stopped replying on CAN {fw.motor_age_ms / 1000:.1f} s ago ({mid})"
-            if st == HS_BLOCKED:
-                return f"Motor replies only when commanded; last {fw.motor_age_ms} ms ago"
-            return f"Motor replying at only {fw.can_rx_motor_hz} Hz (expected ~1000)"
+            expect = 1000 if fw.ctrl_state in P.CS_ENABLED else 100
+            return f"Motor replying at only {fw.can_rx_motor_hz} Hz (expected ~{expect})"
         if nid == "M5":
             return "values decode and change" if ok else "Motor angle is NaN or has repeated the same value 200 times"
         if nid == "M6":

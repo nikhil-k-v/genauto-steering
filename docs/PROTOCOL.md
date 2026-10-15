@@ -22,7 +22,7 @@ Source of truth: [`protocol/protocol.h`](../protocol/protocol.h). Python mirror:
 | 0xA2 | HealthPacket | T→PC | 28 | 20 Hz: trip, calib stage, state, 2-bit node states ×13, CAN rates/errors, loop Hz, ages |
 | 0xA3 | ConfigEchoPacket | T→PC | 28 | 5 Hz + on change: motor id, zeroed, limits valid, kp kd ki tff, limits |
 | 0xA4 | EventPacket | T→PC | 28 | on occurrence: code, arg, 20-char text (trip, state, cmd accepted/**rejected with reason**, calib stage, limits/zero set, test done, warning) |
-| 0xA5 | CanScanPacket | T→PC | 18 | after CMD_CAN_SCAN |
+| 0xA5 | CanScanPacket | T→PC | 18 | once a CMD_CAN_SCAN finishes (~0.3 s; count may be 0) |
 | 0xB1 | GainsPacket | PC→T | 20 | on Apply |
 | 0xB2 | SetpointPacket | PC→T | 16 | ≤ 200 Hz stream (seq, t_ms, pos, vel_ff, last flag) |
 | 0xB3 | ModeRequestPacket | PC→T | 4 | AUTO / HOLD / TRAJ / FREESPIN, sticky |
@@ -68,6 +68,11 @@ byte 6-7  torque    12 bit   -18 … 18 Nm
 ```
 
 Special: `FF FF FF FF FF FF FF FC` enter motor mode · `…FD` exit (REST) · `…FE` set zero.
+
+The motor answers **every** frame addressed to its id (in REST it ignores the command but still replies),
+and never talks on its own. The Teensy therefore always sends: the command each 1 kHz tick with the motor
+on, a zero-gain zero-torque poll at `CAN_REST_POLL_HZ` (100 Hz) with it off, exit-motor-mode once at boot,
+and during a scan one ping per tick to ids `first..last` (twice each), then 50 ms of listening.
 
 Reply (8 bytes): `byte 0 = id echo`, bytes 1-2 position, bytes 3-4 velocity (12 bit), bytes 4-5
 current/torque (12 bit). The id echo in byte 0 is what the old code once mis-parsed as position.

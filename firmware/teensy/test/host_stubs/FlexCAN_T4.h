@@ -7,5 +7,5 @@ struct CAN_message_t { uint32_t id = 0; uint8_t len = 8; uint8_t buf[8] = {0}; s
 typedef void (*_MB_ptr)(const CAN_message_t&);
 template<CAN_DEV_TABLE B, FLEXCAN_RXQUEUE_TABLE R, FLEXCAN_TXQUEUE_TABLE T> struct FlexCAN_T4 {
   void begin() {} void setBaudRate(uint32_t) {} void setMaxMB(int) {} void enableFIFO() {} void enableFIFOInterrupt() {}
-  void onReceive(_MB_ptr) {} void events() {} int write(const CAN_message_t&) { return 1; }
+  void onReceive(_MB_ptr) {} uint64_t events() { return 0; } int write(const CAN_message_t&) { return 1; }
 };
